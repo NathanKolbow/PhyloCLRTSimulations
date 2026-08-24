@@ -29,3 +29,4 @@ Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 
 [sources]
 SNaQ = {rev = "treechild-galled", url = "https://github.com/JuliaPhylo/SNaQ.jl"}
+PhyloCLRT = {url = "https://github.com/NathanKolbow/PhyloCLRT.jl"}

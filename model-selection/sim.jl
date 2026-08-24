@@ -14,6 +14,9 @@ const TESTS 	= ["CLIC", "cw", "cwP", "cLR", "cLR1", "cLR2", "cLRI"];	# NOT inclu
 const TRUEH		= [0, 1, 2] # [0, 1, 2, 3];
 const HOVEREST  = 1;
 
+SNAQONLY = length(ARGS) == 2 && parse(Bool, ARGS[2])
+ϵ != 0.0 && SNAQONLY && error("To run SNaQ only set ϵ=0.0 (ϵ=$ϵ provided)")
+SNAQONLY && @warn "Only running SNaQ computations and optimizations."
 
 include("../includes.jl")
 outpath = joinpath(@__DIR__, "dat-eps$(ϵ).csv")
@@ -32,7 +35,7 @@ for irep = 1:NREP, ngt in NGTS, t in TS, model in MODELS, trueh in TRUEH
 		Random.seed!(simid)
 		@simlog "\n\nngt=$ngt model=$model trueh=$trueh irep=$irep"
 
-		truenet = generate_network(8, trueh, t, 0.5)
+		truenet = generate_network(8, trueh, t, 0.5; forcetcgident=true)
 		gts = simulatecoalescent(truenet, ngt, 1; inheritancecorrelation=1.0);
 		
 		dcf = gts2DCF(gts);
@@ -40,26 +43,33 @@ for irep = 1:NREP, ngt in NGTS, t in TS, model in MODELS, trueh in TRUEH
 		tD = t_distribution(gts);
 
 		@simlog "\t\tInferring SNaQ networks" snaqnets = [snaqnetsearch(truenet, dcf, h) for h = 0:(trueh+HOVEREST)];
-		@simlog "\t\tOptimizing networks" optnets = [
+		@simlog "\t\tOptimizing networks" optnets = SNAQONLY ? [] : [
 			optimize_given_model(sn, gts, model, ϵ; verbose=false, rootmaxeval=25, finalmaxeval=500)
 			for sn in snaqnets
 		]
 		
-		@simlog "\t\tGathering likelihood components" lks = [gather_likelihood_components(on, gts, model, ϵ) for on in optnets];
+		@simlog "\t\tGathering likelihood components" lks = SNAQONLY ? [] : [gather_likelihood_components(on, gts, model, ϵ) for on in optnets];
+
+		@simlog "\t\tRe-fitting SNaQ networks" begin
+			for sn in snaqnets
+				fitnumericalparameters!(sn, dcf, 1.0; maxeval=5000)
+			end
+		end
 
 		@simlog "\t\tRunning tests" begin 
 			for test in TESTS
-				push!(dat, [simid, ngt, t, model, test, 0.0, ϵ, trueh, 0])
+				!SNAQONLY && push!(dat, [simid, ngt, t, model, test, 0.0, ϵ, trueh, 0])
 				push!(dat, [simid, ngt, t, "quartet", test, 0.0, ϵ, trueh, 0])
 
 				for hmax = 1:(trueh+HOVEREST)
 					i = hmax+1
-					push!(dat, [simid, ngt, t, model, test, run_test(
-						optnets[i], test, CompTypes([lks[i-1][1], lks[i-1][3], lks[i-1][4], lks[i][1], lks[i][2], lks[i][3], lks[i][4]])
-					), ϵ, trueh, hmax])
-
 					push!(dat, [simid, ngt, t, "quartet", test, run_test_old_model(
 						snaqnets[i-1], snaqnets[i], gts, test
+					), ϵ, trueh, hmax])
+
+					SNAQONLY && continue
+					push!(dat, [simid, ngt, t, model, test, run_test(
+						optnets[i], test, CompTypes([lks[i-1][1], lks[i-1][3], lks[i-1][4], lks[i][1], lks[i][2], lks[i][3], lks[i][4]])
 					), ϵ, trueh, hmax])
 				end
 			end
@@ -85,6 +95,8 @@ for irep = 1:NREP, ngt in NGTS, t in TS, model in MODELS, trueh in TRUEH
 		end
 		
 		@simlog "\t\tNew DDSE and Djump" try
+			SNAQONLY && error("dummy error to trigger the try-catch and exit")
+
 			rows = []
 			newLLs = SNaQscore.(optnets);
 			new_DDSE_pens = DDSEpenalties(.-newLLs, collect(0:(trueh+HOVEREST)), ngt)

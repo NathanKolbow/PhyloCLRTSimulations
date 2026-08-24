@@ -1,0 +1,181 @@
+---
+title: "Model Selection"
+author: "Nathan Kolbow"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(patchwork)
+library(ggh4x)
+library(cowplot)
+
+alphas <- c(0.001, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)
+df <- rbind(
+  read.csv("dat-eps0.0.csv"),
+  read.csv("dat-eps0.1.csv"),
+  # read.csv("dat-eps0.01.csv"),
+  # read.csv("dat-eps0.001.csv"),
+  # read.csv("dat-eps0.0001.csv"),
+  read.csv("dat-eps1.0.csv")
+)
+df <- df %>%
+  rbind(
+    df %>%
+      group_by(test, simid, model, eps) %>%
+      filter(!any(esth == 0)) %>%
+      ungroup() %>%
+      filter(model == "quartet" & esth == 1) %>%
+      mutate(esth = 0, result = 0)
+  ) %>%
+  crossing(alphas) %>%
+  rename(alpha = alphas) %>%
+  arrange(simid, esth, alpha) %>%
+  group_by(test, simid, model, eps, alpha) %>%
+  mutate(
+    result = if_else(test == "CLIC", sign(result) * log(0.1 + abs(result)), result),
+    cutoff = if_else(test == "CLIC", 0, alpha), #if_else(esth == 0, 0, 1 - ((1 - alpha) ^ esth))),
+    rejectH0 = if_else(esth == 0, TRUE, result <= cutoff),
+    first_failure_to_reject = (!rejectH0 & row_number() == min(c(row_number()[!rejectH0], max(row_number())))),
+    selected = lead(first_failure_to_reject, default = FALSE),
+    selected = if_else(rep(all(rejectH0), n()), row_number() == max(row_number()), selected),
+    selected = if_else(test == "Djump", result == 1, selected),
+    selected = if_else(test == "DDSE", result == max(result), selected)
+  )
+
+best_alpha <- df %>%
+  filter(selected) %>%
+  group_by(test, model, eps, alpha, trueh, ngt) %>%
+  summarise(acc = mean(trueh == esth)) %>%
+  group_by(test, model, eps, alpha, ngt) %>%
+  summarise(acc = prod(0.1 + acc) - 0.1) %>%
+  
+  group_by(test, model, eps, ngt) %>%
+  slice_max(acc, n=1, with_ties=FALSE)
+
+df <- df %>%
+  semi_join(best_alpha, c("test", "model", "eps", "alpha", "ngt"))
+```
+
+# Comparing all tests
+
+```{r}
+modelacc_df <- df %>%
+  filter(selected) %>%
+  group_by(test, model, eps) %>%
+  summarise(
+    acc = mean(trueh == esth),
+    accH0 = mean(esth[trueh == 0] == 0),
+    accHnonzero = mean(esth[trueh != 0] != 0)
+  )
+modelacc_df
+df %>%
+  filter(eps == 1 & trueh == 2 & model == "joint" & test == "cwP")
+```
+
+# All eps=EPS
+
+```{r}
+EPS <- 0.
+df %>%
+  filter(eps == EPS & test == "CLIC") %>%
+  ggplot(aes(x = esth, y = result, color = factor(trueh), group = interaction(simid, test, model, ngt))) +
+  geom_point() +
+  geom_line() +
+  facet_nested(model ~ ngt, scales="free") +
+  geom_hline(yintercept = 0, alpha = 0.25, linetype = "dashed")
+```
+
+```{r, fig.width=10, fig.height=5}
+EPS <- 0
+df %>%
+  filter(eps == EPS & selected) %>%
+  group_by(test, model, trueh, ngt) %>%
+  summarise(acc = if_else(n() == 0, -1, mean(trueh == esth))) %>%
+  ggplot(aes(x = factor(trueh), y = acc, fill = test)) +
+  geom_col(position = position_dodge2()) +
+  facet_nested(test ~ ngt + model)
+```
+
+```{r}
+df %>%
+  filter(model == "joint" & ngt == 100 & eps == 0 & test == "cwP" & trueh == 1)
+```
+
+# Determining the best tests
+
+```{r, fig.width=6, fig.height=4}
+best_test_df <- df %>%
+  filter(selected) %>%
+  group_by(test, model, eps, trueh) %>%
+  summarise(
+    acc = mean(trueh == esth),
+    meandiff = mean(abs(trueh - esth))
+  ) %>%
+  group_by(test, model, eps) %>%
+  summarise(
+    acc = prod(acc),
+    ntests = n()
+  ) %>%
+  ungroup() %>%
+  filter(ntests >= 0.5 * max(ntests)) %>%
+  filter(acc == max(acc))
+
+semi_join(df, best_test_df, c("test", "model", "eps")) %>%
+  filter(selected) %>%
+  group_by(ngt, trueh, test) %>%
+  summarise(acc = mean(trueh == esth)) %>%
+  ggplot(aes(x = factor(trueh), y = acc, fill = factor(trueh), group = interaction(test, trueh, ngt))) +
+  geom_col(position = position_dodge2()) +
+  theme_bw() +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+  facet_wrap(~ ngt) +
+  ggtitle(paste0(
+    best_test_df$test, " [", best_test_df$model, "] (eps=", best_test_df$eps, ")", collapse="\n"
+  ))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

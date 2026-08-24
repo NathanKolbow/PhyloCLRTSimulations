@@ -1,0 +1,368 @@
+---
+title: "Error Analysis"
+author: "Nathan Kolbow"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(patchwork)
+library(ggh4x)
+library(cowplot)
+
+type1df <- rbind(
+		read.csv("type1error/dat-eps0.0.csv"),
+		read.csv("type1error/dat-eps0.0001.csv"),
+		read.csv("type1error/dat-eps0.001.csv"),
+		read.csv("type1error/dat-eps0.01.csv"),
+		read.csv("type1error/dat-eps0.1.csv"),
+		read.csv("type1error/dat-eps0.5.csv"),
+		read.csv("type1error/dat-eps1.0.csv")
+	) %>% mutate(truth = "H0")
+type2df <- rbind(
+		read.csv("../CLRT/src/model_expansion/tests-perfect-data/dat-eps0.0.csv"),
+		read.csv("../CLRT/src/model_expansion/tests-perfect-data/dat-eps0.001.csv"),
+		read.csv("../CLRT/src/model_expansion/tests-perfect-data/dat-eps0.01.csv"),
+		read.csv("../CLRT/src/model_expansion/tests-perfect-data/dat-eps0.1.csv"),
+		read.csv("../CLRT/src/model_expansion/tests-perfect-data/dat-eps0.1.csv"),
+		read.csv("../CLRT/src/model_expansion/tests-perfect-data/dat-eps0.5.csv"),
+		read.csv("../CLRT/src/model_expansion/tests-perfect-data/dat-eps1.0.csv")
+	) %>% mutate(truth = "H1")
+```
+
+# Method Select
+
+```{r}
+error_rates <- rbind(type1df, type2df) %>%
+  group_by(test, model, eps, ngt, gamma) %>%
+  summarise(
+    power = mean()
+  )
+```
+
+# Power Analysis
+
+```{r, fig.height=6, fig.width=12}
+ALPHA <- 0.05
+power_df <- type2df %>%
+  group_by(test, model, eps, ngt, gamma) %>%
+  summarise(power = mean(if_else(test == "CLIC", result < 0, result < ALPHA)))
+
+
+ggplot(filter(power_df, test == "cw"), aes(x = gamma, y = power, color = factor(ngt))) +
+  geom_line() +
+  geom_point() +
+  facet_grid(model ~ eps)
+```
+
+Heatmap figure with an alpha grid
+
+```{r, fig.height = 5, fig.width = 12}
+alpha.grid <- seq(0, 1, length = 50)
+alpha.grid <- alpha.grid[2:length(alpha.grid)]  # never use alpha=0
+power_grid_df <- type2df %>%
+  filter(test != "CLIC" & gamma > 0) %>%
+  group_by(test, model, eps, ngt, gamma) %>%
+  reframe(
+    alpha = alpha.grid,
+    power = sapply(alpha.grid, function(a) mean(result <= a))
+  )
+
+best_models <- power_grid_df %>%
+  group_by(test, model, eps, ngt, gamma) %>%
+  summarise(sumpower = sum(power)) %>%
+  group_by(ngt, gamma) %>%
+  filter(sumpower == max(sumpower)) %>%
+  distinct()
+
+power_grid_df %>%
+  semi_join(best_models, c("test", "model", "eps", "ngt", "gamma")) %>%
+  ggplot(aes(x = gamma, y = alpha, fill = power)) +
+  geom_tile() +
+  facet_nested(~ ngt) +
+  scale_fill_gradientn(colors = rainbow(4)) +
+  theme_bw() +
+  scale_x_continuous(expand=c(0, 0), breaks=c(0.01, 0.25, 0.5)) +
+  scale_y_continuous(expand=c(0, 0)) +
+  theme(panel.spacing.x = unit(2, "lines")) +
+  geom_hline(yintercept = 0.01, color = "red", linetype = "dashed")
+```
+
+
+
+# Type-I Error Analysis
+
+```{r, fig.width=14, fig.height=9}
+type1error_df <- type1df %>%
+  filter(test != "CLIC") %>%
+  group_by(test, model, eps, ngt) %>%
+  reframe(
+    alpha = alpha.grid,
+    type1error = sapply(alpha.grid, function(a) mean(result <= a))
+  )
+
+type1error_df %>%
+  arrange(alpha) %>%
+  ggplot(aes(x = alpha, y = type1error, color = factor(ngt))) +
+  geom_line() +
+  facet_nested(eps ~ test + model)
+```
+
+
+# Best Model by Type-I and Type-II
+
+```{r, fig.width=10, fig.height=4}
+type1model_df <- type1error_df %>%
+  group_by(test, model, eps, ngt, alpha) %>%
+  summarise(invtype1 = mean(1 - type1error)) %>%
+  mutate(model = if_else(model == "joint", "J", "M"))
+type2model_df <- type2df %>%
+  filter(test != "CLIC" & gamma > 0) %>%
+  mutate(gamma_group = cut_width(gamma, width = 0.5 / 4, boundary = 0)) %>%
+  group_by(test, model, eps, ngt, gamma_group) %>%
+  reframe(
+    alpha = alpha.grid,
+    power = sapply(alpha.grid, function(a) mean(result <= a))
+  ) %>%
+  group_by(test, model, eps, ngt, alpha, gamma_group) %>%
+  summarise(power = mean(power)) %>%
+  mutate(model = if_else(model == "joint", "J", "M"))
+
+best_model <- inner_join(type1model_df, type2model_df, c("alpha", "model", "test", "eps", "ngt")) %>%
+  group_by(alpha, model, test, eps, ngt) %>%
+  summarise(
+    score = mean(invtype1 * power)
+  ) %>%
+  group_by(model, test, eps, ngt) %>%
+  slice_max(score, n=1, with_ties = FALSE) %>%
+  group_by(ngt) %>%
+  slice_max(score, n=1, with_ties = FALSE) %>%
+  group_by(ngt) %>%
+  mutate(
+    model = if_else(model == "J" | model == "joint", "J", "M"),
+    facetlabel = paste0(ngt, " loci (", unique(test), "[", unique(model), "] ϵ=", unique(eps), ")")
+  )
+
+
+inner_join(
+  semi_join(type1model_df, best_model, c("test", "model", "eps", "ngt")),
+  semi_join(type2model_df, best_model, c("test", "model", "eps", "ngt")),
+  c("alpha", "model", "test", "eps", "ngt")
+) %>%
+  group_by(ngt) %>%
+  mutate(
+    model = if_else(model == "joint" | model == "J", "J", "M"),
+    facetlabel = paste0(ngt, " loci (", unique(test), "[", unique(model), "] ϵ=", unique(eps), ")")
+  ) %>%
+  arrange(alpha, power, invtype1) %>%
+  ggplot(aes(x = alpha, group = interaction(ngt, gamma_group))) +
+  geom_line(aes(y = 1-invtype1, linetype = "Type-I Error"), linewidth=1.2) +
+  geom_line(aes(y = power, linetype = "Power", color = gamma_group), linewidth=1.2) +
+  facet_wrap(~ facetlabel) +
+  theme_bw() +
+  scale_x_continuous(expand=c(0, 0)) +
+  scale_y_continuous(expand=c(0, 0.01), limits = c(0, 1)) +
+  labs(x = "Rejection Threshold", y = "Power / Type-I Error", linetype = "", color = "γ Bin") +
+  geom_vline(data=best_model, aes(xintercept = alpha, group = interaction(ngt)), inherit.aes = FALSE, color = "red", linetype = "dashed") +
+  theme(panel.spacing.x = unit(2, "lines"))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

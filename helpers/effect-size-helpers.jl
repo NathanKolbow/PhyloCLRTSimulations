@@ -64,9 +64,7 @@ end
 
 function run_test(H1net::HybridNetwork, test::String, lik_components::CompTypes)::Float64
 	logf0, sens0, var0, logf1, grad1, sens1, var1 = lik_components;
-	return if test == "CLIC"
-		CLICstatistic(var1, sens1, logf1) - CLICstatistic(var0, sens0, logf0)
-	elseif test == "cw"
+	return if test == "cw"
 		cw(var1, sens1, logf1, logf0)[2]
 	elseif test == "cwP"
 		cwP(H1net, var1, sens1, logf1, logf0)[2]

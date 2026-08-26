@@ -10,7 +10,7 @@ const NGTS  	= [10, 50, 100, 500, 1000];
 const TS    	= [1.0];
 const NREP  	= 1000;
 const MODELS 	= ["marginal", "joint"];
-const TESTS 	= ["CLIC", "cw", "cwP", "cLR", "cLR1", "cLR2", "cLRI"];	# NOT including DDSE, Djump
+const TESTS 	= ["cw", "cwP", "cLR", "cLR1", "cLR2", "cLRI"];	# NOT including DDSE, Djump
 const TRUEH		= [0, 1, 2] # [0, 1, 2, 3];
 const HOVEREST  = 1;
 
@@ -28,7 +28,7 @@ dat = isfile(outpath) ? CSV.read(outpath, DataFrame) :
 dat[!,:model] = convert.(String, dat[!,:model])	# to stop some silly bugs w/o using `push!(...; promote=true)`
 dat[!,:test] = convert.(String, dat[!,:test])	# to stop some silly bugs w/o using `push!(...; promote=true)`
 
-	
+
 for irep = 1:NREP, ngt in NGTS, t in TS, model in MODELS, trueh in TRUEH
 	try
 		simid = abs(rand(Int64));
@@ -73,16 +73,25 @@ for irep = 1:NREP, ngt in NGTS, t in TS, model in MODELS, trueh in TRUEH
 					), ϵ, trueh, hmax])
 				end
 			end
+
+			# CLIC specifically
+			for hmax = 0:(trueh+HOVEREST)
+				i = hmax+1
+				!SNAQONLY && push!(dat, [simid, ngt, t, model, "CLIC", CLICstatistic(lks[i][4], lks[i][3], lks[i][1]), ϵ, trueh, hmax])
+				push!(dat, [simid, ngt, t, "quartet", "CLIC", quartetCLICstatistic(snaqnets[i], gts), ϵ, trueh, hmax])
+			end
 		end
 
 		################ DDSE and Djump for new AND old models [old only if ϵ=0] ################
 		if ϵ == 0.0
 			@simlog "\t\tOld DDSE and Djump" try
 				rows = []
-				old_DDSE_pens = DDSEtest(hypdats, ngt)[2]
-				old_Djump_pens = Djumptest(hypdats, ngt)[2]
+				hmaxes = collect(0:(length(snaqnets)-1))
+				quartet_DDSE_pens = PhyloCLRT.DDSEpenalties(SNaQscore.(snaqnets), hmaxes, ngt)
+				Djumpbest = PhyloCLRT.Djumpbestmodel(SNaQscore.(snaqnets), hmaxes, ngt)
+				quartet_Djump_pens = [hmax == Djumpbest ? 1.0 : 0.0 for hmax in hmaxes]
 
-				for (DDSE_pen, Djump_pen, hmax) in zip(old_DDSE_pens, old_Djump_pens, 0:(trueh+HOVEREST))
+				for (DDSE_pen, Djump_pen, hmax) in zip(quartet_DDSE_pens, quartet_Djump_pens, 0:(trueh+HOVEREST))
 					push!(rows, [simid, ngt, t, "quartet", "DDSE", DDSE_pen, ϵ, trueh, hmax])
 					push!(rows, [simid, ngt, t, "quartet", "Djump", Djump_pen, ϵ, trueh, hmax])
 				end
@@ -99,9 +108,10 @@ for irep = 1:NREP, ngt in NGTS, t in TS, model in MODELS, trueh in TRUEH
 
 			rows = []
 			newLLs = SNaQscore.(optnets);
-			new_DDSE_pens = DDSEpenalties(.-newLLs, collect(0:(trueh+HOVEREST)), ngt)
-			new_Djump_best = Djumpbestmodel(.-newLLs, collect(0:(trueh+HOVEREST)), ngt)
-			new_Djump_pens = abs.(1.0 .- [h == new_Djump_best ? 1.0 : 0.0 for h = 0:(trueh + HOVEREST)])
+			hmaxes = collect(0:(trueh+HOVEREST))
+			new_DDSE_pens = PhyloCLRT.DDSEpenalties(.-newLLs, hmaxes, ngt)
+			new_Djump_best = PhyloCLRT.Djumpbestmodel(.-newLLs, hmaxes, ngt)
+			new_Djump_pens = [h == new_Djump_best ? 1.0 : 0.0 for h = 0:(trueh + HOVEREST)]
 			for (DDSE_pen, Djump_pen, hmax) in zip(new_DDSE_pens, new_Djump_pens, 0:(trueh+HOVEREST))
 				push!(rows, [simid, ngt, t, model, "DDSE", DDSE_pen, ϵ, trueh, hmax])
 				push!(rows, [simid, ngt, t, model, "Djump", Djump_pen, ϵ, trueh, hmax])

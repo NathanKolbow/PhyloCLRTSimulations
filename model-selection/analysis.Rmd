@@ -11,53 +11,157 @@ library(ggplot2)
 library(patchwork)
 library(ggh4x)
 library(cowplot)
-
-alphas <- c(0.001, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)
-df <- rbind(
-  read.csv("dat-eps0.0.csv"),
-  read.csv("dat-eps0.1.csv"),
-  # read.csv("dat-eps0.01.csv"),
-  # read.csv("dat-eps0.001.csv"),
-  # read.csv("dat-eps0.0001.csv"),
-  read.csv("dat-eps1.0.csv")
-)
-df <- df %>%
-  rbind(
-    df %>%
-      group_by(test, simid, model, eps) %>%
-      filter(!any(esth == 0)) %>%
-      ungroup() %>%
-      filter(model == "quartet" & esth == 1) %>%
-      mutate(esth = 0, result = 0)
-  ) %>%
-  crossing(alphas) %>%
-  rename(alpha = alphas) %>%
-  arrange(simid, esth, alpha) %>%
-  group_by(test, simid, model, eps, alpha) %>%
-  mutate(
-    result = if_else(test == "CLIC", sign(result) * log(0.1 + abs(result)), result),
-    cutoff = if_else(test == "CLIC", 0, alpha), #if_else(esth == 0, 0, 1 - ((1 - alpha) ^ esth))),
-    rejectH0 = if_else(esth == 0, TRUE, result <= cutoff),
-    first_failure_to_reject = (!rejectH0 & row_number() == min(c(row_number()[!rejectH0], max(row_number())))),
-    selected = lead(first_failure_to_reject, default = FALSE),
-    selected = if_else(rep(all(rejectH0), n()), row_number() == max(row_number()), selected),
-    selected = if_else(test == "Djump", result == 1, selected),
-    selected = if_else(test == "DDSE", result == max(result), selected)
-  )
-
-best_alpha <- df %>%
-  filter(selected) %>%
-  group_by(test, model, eps, alpha, trueh, ngt) %>%
-  summarise(acc = mean(trueh == esth)) %>%
-  group_by(test, model, eps, alpha, ngt) %>%
-  summarise(acc = prod(0.1 + acc) - 0.1) %>%
-  
-  group_by(test, model, eps, ngt) %>%
-  slice_max(acc, n=1, with_ties=FALSE)
-
-df <- df %>%
-  semi_join(best_alpha, c("test", "model", "eps", "alpha", "ngt"))
 ```
+
+```{r load_data_old, include=FALSE}
+#### Original data pipeline, much slower than the Claude version below
+
+# alphas <- c(-0.001, 0, 0.001, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99, 0.99999, 1.0, 1.01)
+# st <- Sys.time()
+# alldata <- rbind(
+#   read.csv("dat-eps0.0.csv"),
+#   read.csv("dat-eps0.1.csv"),
+#   read.csv("dat-eps0.01.csv"),
+#   read.csv("dat-eps0.001.csv"),
+#   # read.csv("dat-eps0.0001.csv"),
+#   read.csv("dat-eps1.0.csv")
+# )
+# 
+# df <- alldata %>%
+#   filter(test != "CLIC" & test != "DDSE" & test != "Djump") %>%
+#   crossing(alphas) %>%
+#   rename(alpha = alphas) %>%
+#   arrange(simid, esth, alpha) %>%
+#   group_by(test, simid, model, eps, alpha) %>%
+#   mutate(
+#     cutoff = alpha,
+#     rejectH0 = if_else(esth == 0, TRUE, result <= cutoff),
+#     first_failure_to_reject = (!rejectH0 & row_number() == min(c(row_number()[!rejectH0], max(row_number())))),
+#     selected = lead(first_failure_to_reject, default = FALSE),
+#     selected = if_else(rep(all(rejectH0), n()), row_number() == max(row_number()), selected),
+#   )
+# 
+# df <- df %>%
+#   rbind(
+#     alldata %>%
+#       filter(test == "CLIC" | test == "DDSE" | test == "Djump") %>%
+#       group_by(test, simid, model, eps) %>%
+#       mutate(
+#         alpha = 0, cutoff = 0, rejectH0 = FALSE, first_failure_to_reject = FALSE, selected = result == max(result)
+#       )
+#   )
+# 
+# best_alpha <- df %>%
+#   filter(selected) %>%
+#   group_by(test, model, eps, alpha, trueh, ngt) %>%
+#   summarise(acc = mean(trueh == esth), .groups = "drop_last") %>%
+#   group_by(test, model, eps, alpha, ngt) %>%
+#   summarise(acc = prod(0.1 + acc) - 0.1, .groups = "drop_last") %>%
+#   group_by(test, model, eps, ngt) %>%
+#   slice_max(acc, n=1, with_ties=FALSE)
+# 
+# df <- df %>%
+#   semi_join(best_alpha, c("test", "model", "eps", "alpha", "ngt")) %>%
+#   mutate(result = if_else(test == "CLIC", sign(result) * log(0.1 + abs(result)), result))
+# Sys.time() - st    # 37.83776
+```
+
+
+```{r load_data, include=FALSE}
+st <- Sys.time()
+
+# Claude faster
+library(tidyverse)
+
+no_alpha_tests <- c("CLIC", "DDSE", "Djump")
+alphas <- c(-0.01, seq(0, 1, 0.01), 1.01) # c(-0.001, 0, 0.001, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99, 0.99999, 1.0, 1.01)
+alphas  <- sort(unique(alphas))          # required: the grid is used as a lookup table
+n_alpha <- length(alphas)
+
+files <- c("dat-eps0.0.csv", "dat-eps0.1.csv", "dat-eps0.01.csv",
+           "dat-eps0.001.csv", "dat-eps1.0.csv")
+alldata <- map(files, read_csv, show_col_types = FALSE) |> list_rbind() %>%
+  filter(test != "DDSE" & test != "Djump")
+
+## 1. For every row, the interval of alphas for which that row is `selected` -----
+intervals <- alldata %>%
+  filter(!test %in% no_alpha_tests) %>%
+  arrange(test, simid, model, eps, esth) %>%
+  group_by(test, simid, model, eps) %>%
+  mutate(
+    p_reject   = if_else(esth == 0, -Inf, result),  # reject H0 once alpha >= p_reject
+    alpha_from = cummax(p_reject),                  # everything up to here rejects
+    alpha_to   = lead(p_reject, default = Inf)      # the next row is the first failure
+  ) %>%
+  ungroup() %>%
+  filter(alpha_from < alpha_to)                     # rows never selected drop out
+
+## 2. Snap the intervals onto the alpha grid and turn them into +1/-1 events ----
+first_alpha_at_or_above <- function(x) findInterval(x, alphas, left.open = TRUE) + 1L
+
+pieces <- intervals %>%
+  transmute(test, model, eps, ngt, trueh,
+            correct = as.integer(esth == trueh),
+            from    = first_alpha_at_or_above(alpha_from),
+            to      = first_alpha_at_or_above(alpha_to)) %>%
+  filter(from <= n_alpha, from < to)                # no grid alpha inside -> irrelevant
+
+events <- bind_rows(
+    pieces %>% mutate(i = from, d =  1L),
+    pieces %>% mutate(i = to,   d = -1L)
+  ) %>%
+  filter(i <= n_alpha) %>%
+  group_by(test, model, eps, ngt, trueh, i) %>%
+  summarise(d_sel = sum(d), d_correct = sum(d * correct), .groups = "drop")
+
+## 3. Accuracy as a step function of alpha (cumsum over the breakpoints) --------
+acc_by_trueh <- events %>%
+  group_by(test, model, eps, ngt) %>%
+  complete(trueh, i, fill = list(d_sel = 0L, d_correct = 0L)) %>%  # completes within groups
+  group_by(test, model, eps, ngt, trueh) %>%
+  arrange(i, .by_group = TRUE) %>%
+  mutate(n_sel = cumsum(d_sel), acc = cumsum(d_correct) / n_sel) %>%
+  ungroup() %>%
+  filter(n_sel > 0)
+
+best_alpha <- acc_by_trueh %>%
+  group_by(test, model, eps, ngt, i) %>%
+  summarise(acc = prod(0.1 + acc) - 0.1, .groups = "drop_last") %>%
+  arrange(i, .by_group = TRUE) %>%
+  slice_max(acc, n = 1, with_ties = FALSE) %>%      # ties -> smallest alpha, as before
+  ungroup() %>%
+  transmute(test, model, eps, ngt, alpha = alphas[i], acc)
+
+## 4. Rebuild the full frame, but only at the winning alpha ---------------------
+df <- bind_rows(
+  alldata %>%
+    filter(!test %in% no_alpha_tests) %>%
+    inner_join(best_alpha %>% select(test, model, eps, ngt, alpha),
+               by = c("test", "model", "eps", "ngt")) %>%
+    arrange(test, simid, model, eps, esth) %>%
+    group_by(test, simid, model, eps) %>%
+    mutate(
+      cutoff                  = alpha,
+      rejectH0                = esth == 0 | result <= cutoff,
+      first_failure_to_reject = !rejectH0 & cumsum(!rejectH0) == 1,
+      selected = lead(first_failure_to_reject, default = FALSE) |
+                 (all(rejectH0) & row_number() == n())
+    ) %>%
+    ungroup(),
+  alldata %>%
+    filter(test %in% no_alpha_tests) %>%
+    group_by(test, simid, model, eps) %>%
+    mutate(alpha = 0, cutoff = 0, rejectH0 = FALSE,
+           first_failure_to_reject = FALSE, selected = result == min(result)) %>%
+    mutate(result = if_else(test == "CLIC", sign(result) * log(0.1 + abs(result)), result)) %>%
+    ungroup()
+)
+
+Sys.time() - st    # 3.4 sec
+```
+
+
+
 
 # Comparing all tests
 
@@ -84,7 +188,7 @@ df %>%
   ggplot(aes(x = esth, y = result, color = factor(trueh), group = interaction(simid, test, model, ngt))) +
   geom_point() +
   geom_line() +
-  facet_nested(model ~ ngt, scales="free") +
+  facet_nested(ngt ~ model, scales="free") +
   geom_hline(yintercept = 0, alpha = 0.25, linetype = "dashed")
 ```
 
@@ -99,11 +203,6 @@ df %>%
   facet_nested(test ~ ngt + model)
 ```
 
-```{r}
-df %>%
-  filter(model == "joint" & ngt == 100 & eps == 0 & test == "cwP" & trueh == 1)
-```
-
 # Determining the best tests
 
 ```{r, fig.width=6, fig.height=4}
@@ -112,15 +211,15 @@ best_test_df <- df %>%
   group_by(test, model, eps, trueh) %>%
   summarise(
     acc = mean(trueh == esth),
-    meandiff = mean(abs(trueh - esth))
+    meandiff = mean(abs(trueh - esth)),
+    ntests = n()
   ) %>%
   group_by(test, model, eps) %>%
   summarise(
     acc = prod(acc),
-    ntests = n()
+    ntests = sum(ntests)
   ) %>%
   ungroup() %>%
-  filter(ntests >= 0.5 * max(ntests)) %>%
   filter(acc == max(acc))
 
 semi_join(df, best_test_df, c("test", "model", "eps")) %>%
@@ -137,10 +236,75 @@ semi_join(df, best_test_df, c("test", "model", "eps")) %>%
   ))
 ```
 
+Further segregating by `ngt`.
 
+```{r, fig.width=10, fig.height=6}
+best_test_df <- df %>%
+  filter(selected) %>%
+  group_by(test, model, eps, trueh, ngt) %>%
+  summarise(
+    acc = mean(trueh == esth),
+    meandiff = mean(abs(trueh - esth)),
+    ntests = n()
+  ) %>%
+  group_by(test, model, eps, ngt) %>%
+  summarise(
+    acc = prod(acc),
+    ntests = sum(ntests)
+  ) %>%
+  group_by(ngt) %>%
+  filter(acc == max(acc)) %>%
+  ungroup()
 
+p_ngtdf <- df %>%
+  semi_join(best_test_df, c("test", "model", "eps", "ngt")) %>%
+  filter(selected) %>%
+  group_by(ngt, trueh, test) %>%
+  summarise(acc = mean(trueh == esth))
 
+p10 <- ggplot(filter(p_ngtdf, ngt == 10), aes(x = factor(trueh), y = acc, fill = factor(trueh), group = interaction(test, trueh, ngt))) +
+  geom_col(position = position_dodge2()) +
+  theme_bw() +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+  facet_wrap(~ ngt) +
+  ggtitle(paste0(
+    first(filter(best_test_df, ngt == 10)$test), " [", first(filter(best_test_df, ngt == 10)$model), "] (eps=", first(filter(best_test_df, ngt == 10)$eps), ")", "[", nrow(filter(best_test_df, ngt == 10)), "]", collapse="\n"
+  ))
+p50 <- ggplot(filter(p_ngtdf, ngt == 50), aes(x = factor(trueh), y = acc, fill = factor(trueh), group = interaction(test, trueh, ngt))) +
+  geom_col(position = position_dodge2()) +
+  theme_bw() +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+  facet_wrap(~ ngt) +
+  ggtitle(paste0(
+    first(filter(best_test_df, ngt == 50)$test), " [", first(filter(best_test_df, ngt == 50)$model), "] (eps=", first(filter(best_test_df, ngt == 50)$eps), ")", "[", nrow(filter(best_test_df, ngt == 50)), "]", collapse="\n"
+  ))
+p100 <- ggplot(filter(p_ngtdf, ngt == 100), aes(x = factor(trueh), y = acc, fill = factor(trueh), group = interaction(test, trueh, ngt))) +
+  geom_col(position = position_dodge2()) +
+  theme_bw() +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+  facet_wrap(~ ngt) +
+  ggtitle(paste0(
+    first(filter(best_test_df, ngt == 100)$test), " [", first(filter(best_test_df, ngt == 100)$model), "] (eps=", first(filter(best_test_df, ngt == 100)$eps), ")", "[", nrow(filter(best_test_df, ngt == 100)), "]", collapse="\n"
+  ))
+p500 <- ggplot(filter(p_ngtdf, ngt == 500), aes(x = factor(trueh), y = acc, fill = factor(trueh), group = interaction(test, trueh, ngt))) +
+  geom_col(position = position_dodge2()) +
+  theme_bw() +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+  facet_wrap(~ ngt) +
+  ggtitle(paste0(
+    first(filter(best_test_df, ngt == 500)$test), " [", first(filter(best_test_df, ngt == 500)$model), "] (eps=", first(filter(best_test_df, ngt == 500)$eps), ")", "[", nrow(filter(best_test_df, ngt == 500)), "]", collapse="\n"
+  ))
+p1000 <- ggplot(filter(p_ngtdf, ngt == 1000), aes(x = factor(trueh), y = acc, fill = factor(trueh), group = interaction(test, trueh, ngt))) +
+  geom_col(position = position_dodge2()) +
+  theme_bw() +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+  facet_wrap(~ ngt) +
+  ggtitle(paste0(
+    first(filter(best_test_df, ngt == 1000)$test), " [", first(filter(best_test_df, ngt == 1000)$model), "] (eps=", first(filter(best_test_df, ngt == 1000)$eps), ")", "[", nrow(filter(best_test_df, ngt == 1000)), "]", collapse="\n"
+  ))
 
+p10 + p50 + p100 + p500 + p1000 + plot_layout(axes="collect", guides="collect")
+```
 
 
 

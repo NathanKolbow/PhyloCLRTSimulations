@@ -34,3 +34,14 @@ function run_tests_old_model(net0::HybridNetwork, net1::HybridNetwork, gts::Vect
 
 	return Float64[run_test(net1, test, CompTypes([logf0, sens0, var0, logf1, grad1, sens1, var1])) for test in tests]
 end
+
+function quartetCLICstatistic(net::HybridNetwork, gts::Vector{HybridNetwork}, ρ::Float64=1.0)
+	ocfs = gts2CFs(gts)
+
+	eqns = SNaQ.findquartetequations(net)[1];
+	var = PhyloCLRT.compute_Jacobian(net, eqns, gts, ρ)
+	sens = .-PhyloCLRT.computeHessian(net, eqns, ocfs, ρ)
+	logf = SNaQ.computeSNaQscore!(net, ocfs, ρ)
+
+	return CLICstatistic(var, sens, logf)
+end

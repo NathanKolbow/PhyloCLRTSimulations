@@ -6,7 +6,7 @@ length(ARGS) > 0 || error("Must provide 1 command line argument for the value of
 ϵ in [0, 0.0001, 0.001, 0.01, 0.1, 0.5, 1.0] || error("ϵ=$(ϵ) not allowed.")
 @info "ϵ = $ϵ selected."
 
-const NGTS  	= [10, 50, 100, 500, 1000];
+const NGTS  	= [10, 50, 100, 500]; #, 1000];
 const TS    	= [1.0];
 const NREP  	= 1000;
 const MODELS 	= ["marginal", "joint"];

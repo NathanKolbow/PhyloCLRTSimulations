@@ -1,11 +1,14 @@
 ---
 title: "Model Selection"
 author: "Nathan Kolbow"
-output: html_document
+output:
+  html_document:
+    toc: true
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(include = FALSE)
 library(tidyverse)
 library(ggplot2)
 library(patchwork)
@@ -13,157 +16,64 @@ library(ggh4x)
 library(cowplot)
 ```
 
-```{r load_data_old, include=FALSE}
-#### Original data pipeline, much slower than the Claude version below
-
-# alphas <- c(-0.001, 0, 0.001, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99, 0.99999, 1.0, 1.01)
-# st <- Sys.time()
-# alldata <- rbind(
-#   read.csv("dat-eps0.0.csv"),
-#   read.csv("dat-eps0.1.csv"),
-#   read.csv("dat-eps0.01.csv"),
-#   read.csv("dat-eps0.001.csv"),
-#   # read.csv("dat-eps0.0001.csv"),
-#   read.csv("dat-eps1.0.csv")
-# )
-# 
-# df <- alldata %>%
-#   filter(test != "CLIC" & test != "DDSE" & test != "Djump") %>%
-#   crossing(alphas) %>%
-#   rename(alpha = alphas) %>%
-#   arrange(simid, esth, alpha) %>%
-#   group_by(test, simid, model, eps, alpha) %>%
-#   mutate(
-#     cutoff = alpha,
-#     rejectH0 = if_else(esth == 0, TRUE, result <= cutoff),
-#     first_failure_to_reject = (!rejectH0 & row_number() == min(c(row_number()[!rejectH0], max(row_number())))),
-#     selected = lead(first_failure_to_reject, default = FALSE),
-#     selected = if_else(rep(all(rejectH0), n()), row_number() == max(row_number()), selected),
-#   )
-# 
-# df <- df %>%
-#   rbind(
-#     alldata %>%
-#       filter(test == "CLIC" | test == "DDSE" | test == "Djump") %>%
-#       group_by(test, simid, model, eps) %>%
-#       mutate(
-#         alpha = 0, cutoff = 0, rejectH0 = FALSE, first_failure_to_reject = FALSE, selected = result == max(result)
-#       )
-#   )
-# 
-# best_alpha <- df %>%
-#   filter(selected) %>%
-#   group_by(test, model, eps, alpha, trueh, ngt) %>%
-#   summarise(acc = mean(trueh == esth), .groups = "drop_last") %>%
-#   group_by(test, model, eps, alpha, ngt) %>%
-#   summarise(acc = prod(0.1 + acc) - 0.1, .groups = "drop_last") %>%
-#   group_by(test, model, eps, ngt) %>%
-#   slice_max(acc, n=1, with_ties=FALSE)
-# 
-# df <- df %>%
-#   semi_join(best_alpha, c("test", "model", "eps", "alpha", "ngt")) %>%
-#   mutate(result = if_else(test == "CLIC", sign(result) * log(0.1 + abs(result)), result))
-# Sys.time() - st    # 37.83776
-```
-
-
 ```{r load_data, include=FALSE}
+alphas <- c(-0.001, 0, 0.001, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99, 0.99999, 1.0, 1.01)
 st <- Sys.time()
+alldata <- rbind(
+  read.csv("dat-eps0.0.csv"),
+  read.csv("dat-eps0.1.csv"),
+  read.csv("dat-eps0.01.csv"),
+  read.csv("dat-eps0.001.csv"),
+  # read.csv("dat-eps0.0001.csv"),
+  read.csv("dat-eps1.0.csv")
+) %>% filter(test != "DDSE" & test != "Djump")
 
-# Claude faster
-library(tidyverse)
-
-no_alpha_tests <- c("CLIC", "DDSE", "Djump")
-alphas <- c(-0.01, seq(0, 1, 0.01), 1.01) # c(-0.001, 0, 0.001, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99, 0.99999, 1.0, 1.01)
-alphas  <- sort(unique(alphas))          # required: the grid is used as a lookup table
-n_alpha <- length(alphas)
-
-files <- c("dat-eps0.0.csv", "dat-eps0.1.csv", "dat-eps0.01.csv",
-           "dat-eps0.001.csv", "dat-eps1.0.csv")
-alldata <- map(files, read_csv, show_col_types = FALSE) |> list_rbind() %>%
-  filter(test != "DDSE" & test != "Djump")
-
-## 1. For every row, the interval of alphas for which that row is `selected` -----
-intervals <- alldata %>%
-  filter(!test %in% no_alpha_tests) %>%
-  arrange(test, simid, model, eps, esth) %>%
-  group_by(test, simid, model, eps) %>%
+df <- alldata %>%
+  filter(test != "CLIC" & test != "DDSE" & test != "Djump") %>%
+  crossing(alphas) %>%
+  rename(alpha = alphas) %>%
+  arrange(simid, esth, alpha) %>%
+  group_by(test, simid, model, eps, alpha) %>%
   mutate(
-    p_reject   = if_else(esth == 0, -Inf, result),  # reject H0 once alpha >= p_reject
-    alpha_from = cummax(p_reject),                  # everything up to here rejects
-    alpha_to   = lead(p_reject, default = Inf)      # the next row is the first failure
-  ) %>%
-  ungroup() %>%
-  filter(alpha_from < alpha_to)                     # rows never selected drop out
+    cutoff = alpha, #1 - (1-alpha)^(esth),
+    rejectH0 = if_else(esth == 0, TRUE, result < cutoff),
+    first_failure_to_reject = (!rejectH0 & row_number() == min(c(row_number()[!rejectH0], max(row_number())))),
+    selected = lead(first_failure_to_reject, default = FALSE),
+    selected = if_else(rep(all(rejectH0), n()), row_number() == max(row_number()), selected),
+  )
 
-## 2. Snap the intervals onto the alpha grid and turn them into +1/-1 events ----
-first_alpha_at_or_above <- function(x) findInterval(x, alphas, left.open = TRUE) + 1L
+df <- df %>%
+  rbind(
+    alldata %>%
+      filter(test == "CLIC" | test == "DDSE" | test == "Djump") %>%
+      group_by(test, simid, model, eps) %>%
+      mutate(
+        alpha = 0, cutoff = 0, rejectH0 = FALSE, first_failure_to_reject = FALSE, selected = result == min(result)
+      )
+  )
 
-pieces <- intervals %>%
-  transmute(test, model, eps, ngt, trueh,
-            correct = as.integer(esth == trueh),
-            from    = first_alpha_at_or_above(alpha_from),
-            to      = first_alpha_at_or_above(alpha_to)) %>%
-  filter(from <= n_alpha, from < to)                # no grid alpha inside -> irrelevant
-
-events <- bind_rows(
-    pieces %>% mutate(i = from, d =  1L),
-    pieces %>% mutate(i = to,   d = -1L)
-  ) %>%
-  filter(i <= n_alpha) %>%
-  group_by(test, model, eps, ngt, trueh, i) %>%
-  summarise(d_sel = sum(d), d_correct = sum(d * correct), .groups = "drop")
-
-## 3. Accuracy as a step function of alpha (cumsum over the breakpoints) --------
-acc_by_trueh <- events %>%
-  group_by(test, model, eps, ngt) %>%
-  complete(trueh, i, fill = list(d_sel = 0L, d_correct = 0L)) %>%  # completes within groups
-  group_by(test, model, eps, ngt, trueh) %>%
-  arrange(i, .by_group = TRUE) %>%
-  mutate(n_sel = cumsum(d_sel), acc = cumsum(d_correct) / n_sel) %>%
-  ungroup() %>%
-  filter(n_sel > 0)
-
-best_alpha <- acc_by_trueh %>%
-  group_by(test, model, eps, ngt, i) %>%
+best_alpha <- df %>%
+  filter(selected) %>%
+  group_by(test, model, eps, alpha, trueh, ngt) %>%
+  summarise(acc = mean(trueh == esth), .groups = "drop_last") %>%
+  group_by(test, model, eps, alpha, ngt) %>%
   summarise(acc = prod(0.1 + acc) - 0.1, .groups = "drop_last") %>%
-  arrange(i, .by_group = TRUE) %>%
-  slice_max(acc, n = 1, with_ties = FALSE) %>%      # ties -> smallest alpha, as before
-  ungroup() %>%
-  transmute(test, model, eps, ngt, alpha = alphas[i], acc)
+  group_by(test, model, eps, ngt) %>%
+  slice_max(acc, n=1, with_ties=FALSE)
 
-## 4. Rebuild the full frame, but only at the winning alpha ---------------------
-df <- bind_rows(
-  alldata %>%
-    filter(!test %in% no_alpha_tests) %>%
-    inner_join(best_alpha %>% select(test, model, eps, ngt, alpha),
-               by = c("test", "model", "eps", "ngt")) %>%
-    arrange(test, simid, model, eps, esth) %>%
-    group_by(test, simid, model, eps) %>%
-    mutate(
-      cutoff                  = alpha,
-      rejectH0                = esth == 0 | result <= cutoff,
-      first_failure_to_reject = !rejectH0 & cumsum(!rejectH0) == 1,
-      selected = lead(first_failure_to_reject, default = FALSE) |
-                 (all(rejectH0) & row_number() == n())
-    ) %>%
-    ungroup(),
-  alldata %>%
-    filter(test %in% no_alpha_tests) %>%
-    group_by(test, simid, model, eps) %>%
-    mutate(alpha = 0, cutoff = 0, rejectH0 = FALSE,
-           first_failure_to_reject = FALSE, selected = result == min(result)) %>%
-    mutate(result = if_else(test == "CLIC", sign(result) * log(0.1 + abs(result)), result)) %>%
-    ungroup()
-)
-
-Sys.time() - st    # 3.4 sec
+df <- df %>%
+  semi_join(best_alpha, c("test", "model", "eps", "alpha", "ngt")) %>%
+  mutate(result = if_else(test == "CLIC", sign(result) * log(0.1 + abs(result)), result))
+Sys.time() - st    # 37.83776
 ```
 
 
 
+::: {.alert .alert-info}
+**Note:** Code chunk `include` default value has been set to `FALSE`, so code chunks (and their plots) will not show unless explicitly set with `include=TRUE`.
+:::
 
-# Comparing all tests
+<!-- Comparing all tests -->
 
 ```{r}
 modelacc_df <- df %>%
@@ -179,7 +89,7 @@ df %>%
   filter(eps == 1 & trueh == 2 & model == "joint" & test == "cwP")
 ```
 
-# All eps=EPS
+<!-- All eps=EPS -->
 
 ```{r}
 EPS <- 0.
@@ -192,20 +102,238 @@ df %>%
   geom_hline(yintercept = 0, alpha = 0.25, linetype = "dashed")
 ```
 
-```{r, fig.width=10, fig.height=5}
+# Examining the tests
+
+## Tests by $\epsilon$
+
+### $\epsilon=0$
+
+```{r, fig.width=10, fig.height=5, include=TRUE}
 EPS <- 0
 df %>%
   filter(eps == EPS & selected) %>%
   group_by(test, model, trueh, ngt) %>%
-  summarise(acc = if_else(n() == 0, -1, mean(trueh == esth))) %>%
+  summarise(acc = if_else(n() == 0, -1, mean(trueh == esth)), .groups = "drop") %>%
   ggplot(aes(x = factor(trueh), y = acc, fill = test)) +
-  geom_col(position = position_dodge2()) +
+  geom_col(position = position_dodge2(), color = "black") +
   facet_nested(test ~ ngt + model)
 ```
 
+### $\epsilon=0.1$
+
+```{r, fig.width=10, fig.height=5, include=TRUE}
+EPS <- 0.1
+df %>%
+  filter(eps == EPS & selected) %>%
+  group_by(test, model, trueh, ngt) %>%
+  summarise(acc = if_else(n() == 0, -1, mean(trueh == esth)), .groups = "drop") %>%
+  ggplot(aes(x = factor(trueh), y = acc, fill = test)) +
+  geom_col(position = position_dodge2(), color = "black") +
+  facet_nested(test ~ ngt + model)
+```
+
+### $\epsilon=0.01$
+
+```{r, fig.width=10, fig.height=5, include=TRUE}
+EPS <- 0.01
+df %>%
+  filter(eps == EPS & selected) %>%
+  group_by(test, model, trueh, ngt) %>%
+  summarise(acc = if_else(n() == 0, -1, mean(trueh == esth)), .groups = "drop") %>%
+  ggplot(aes(x = factor(trueh), y = acc, fill = test)) +
+  geom_col(position = position_dodge2(), color = "black") +
+  facet_nested(test ~ ngt + model)
+```
+
+### $\epsilon=1$
+
+```{r, fig.width=10, fig.height=5, include=TRUE}
+EPS <- 1
+df %>%
+  filter(eps == EPS & selected) %>%
+  group_by(test, model, trueh, ngt) %>%
+  summarise(acc = if_else(n() == 0, -1, mean(trueh == esth)), .groups = "drop") %>%
+  ggplot(aes(x = factor(trueh), y = acc, fill = test)) +
+  geom_col(position = position_dodge2(), color = "black") +
+  facet_nested(test ~ ngt + model)
+```
+
+
+
+
+
+
+## Comparing $\epsilon$ values for each test
+
+```{r, fig.width=12, fig.height=6, include=TRUE}
+compare_eps_plot <- function(tib, testname) {
+  tib %>%
+    filter(selected & test == testname) %>%
+    group_by(eps, ngt, trueh, model) %>%
+    summarise(acc = mean(trueh == esth), .groups = "drop") %>%
+    mutate(trueh = factor(trueh), eps = factor(eps)) %>%
+    ggplot(aes(x = eps, y = acc, color = trueh, group = interaction(model, ngt, trueh))) +
+    geom_point() +
+    geom_line() +
+    facet_nested(ngt ~ model, scales = "free") +
+    theme_bw() +
+    ggtitle(paste0("Test: ", testname)) +
+    labs(
+      x = bquote(epsilon),
+      y = "Accuracy",
+      color = "True H"
+    )
+}
+
+compare_eps_plot(df, "cLR") + compare_eps_plot(df, "cLRI") + plot_layout(axes = "collect", guides = "collect")
+compare_eps_plot(df, "cLR1") + compare_eps_plot(df, "cLR2") + plot_layout(axes = "collect", guides = "collect")
+(compare_eps_plot(df, "cw") + compare_eps_plot(df, "cwP") + compare_eps_plot(df, "CLIC")) + plot_layout(axes = "collect", guides = "collect")
+```
+
+## Over marginalized comparisons
+
+```{r, fig.width=12, fig.height=5, include=TRUE}
+sel_df <- filter(df, selected) %>% ungroup() %>% mutate(trueh = factor(trueh), ngt = factor(ngt), eps = factor(eps))
+
+bests_df <- sel_df %>%
+  group_by(test, trueh, ngt, model, eps) %>%
+  summarise(acc = mean(esth == trueh), .groups = "drop")
+
+# Test
+semi_join(
+  sel_df,
+  bests_df %>%
+    group_by(test) %>%
+    summarise(acc = mean(acc), .groups = "drop"),
+  "test"
+) %>% 
+  group_by(ngt, test) %>%
+  summarise(acc = mean(trueh == esth)) %>%
+  ggplot(aes(x = ngt, y = acc, fill = test)) +
+  geom_col(position = position_dodge2(), color = "black") +
+  facet_grid(~ test) +
+  theme_bw() +
+  labs(
+    x = "Number of loci",
+    y = "Accuracy"
+  ) +
+  guides(fill = "none") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), axis.ticks.length = unit(0, "lines"))
+
+# Model
+semi_join(
+  sel_df,
+  bests_df %>%
+    group_by(model) %>%
+    summarise(acc = mean(acc), .groups = "drop"),
+  "model"
+) %>% 
+  group_by(ngt, model) %>%
+  summarise(acc = mean(trueh == esth)) %>%
+  ggplot(aes(x = ngt, y = acc, fill = model)) +
+  geom_col(position = position_dodge2(), color = "black") +
+  facet_grid(~ model) +
+  theme_bw() +
+  labs(
+    x = "Number of loci",
+    y = "Accuracy"
+  ) +
+  guides(fill = "none") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), axis.ticks.length = unit(0, "lines"))
+
+# Epsilon
+semi_join(
+  sel_df,
+  bests_df %>%
+    group_by(eps) %>%
+    summarise(acc = mean(acc), .groups = "drop"),
+  "eps"
+) %>% 
+  group_by(ngt, eps) %>%
+  summarise(acc = mean(trueh == esth)) %>%
+  ggplot(aes(x = ngt, y = acc, fill = eps)) +
+  geom_col(position = position_dodge2(), color = "black") +
+  facet_grid(~ eps) +
+  theme_bw() +
+  labs(
+    x = "Number of loci",
+    y = "Accuracy"
+  ) +
+  guides(fill = "none") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), axis.ticks.length = unit(0, "lines"))
+```
+
+# Model + $\epsilon$
+
+```{r, fig.width=8, fig.height=3, include=TRUE}
+subdf <- semi_join(
+  sel_df,
+  bests_df %>%
+    group_by(model, eps) %>%
+    summarise(acc = mean(acc), .groups = "drop"),
+  c("model", "eps")
+) %>%
+  mutate(eps = paste0("eps=", eps)) %>%
+  filter(model != "quartet" | eps == "eps=0")
+
+pjoint <- subdf %>%
+  filter(model == "joint") %>%
+  group_by(ngt, model, eps) %>%
+  summarise(acc = mean(trueh == esth), .groups = "drop") %>%
+  ggplot(aes(x = ngt, y = acc, fill = model)) +
+  geom_col(position = position_dodge2(), color = "black", fill = "#e41a1c") +
+  facet_grid( ~ eps) +
+  theme_bw() +
+  labs(
+    x = "Number of loci",
+    y = "Accuracy"
+  ) +
+  guides(fill = "none") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), axis.ticks.length = unit(0, "lines")) +
+  ggtitle("Joint") +
+  lims(y = c(0, 1))
+pmarg <- subdf %>%
+  filter(model == "marginal") %>%
+  group_by(ngt, model, eps) %>%
+  summarise(acc = mean(trueh == esth), .groups = "drop") %>%
+  ggplot(aes(x = ngt, y = acc, fill = model)) +
+  geom_col(position = position_dodge2(), color = "black", fill = "#377eb8") +
+  facet_grid( ~ eps) +
+  theme_bw() +
+  labs(
+    x = "Number of loci",
+    y = "Accuracy"
+  ) +
+  guides(fill = "none") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), axis.ticks.length = unit(0, "lines")) +
+  ggtitle("Marginal") +
+  lims(y = c(0, 1))
+pquart <- subdf %>%
+  filter(model == "quartet") %>%
+  group_by(ngt, model, eps) %>%
+  summarise(acc = mean(trueh == esth), .groups = "drop") %>%
+  ggplot(aes(x = ngt, y = acc, fill = model)) +
+  geom_col(position = position_dodge2(), color = "black", fill = "#4daf4a") +
+  theme_bw() +
+  facet_grid( ~ eps) +
+  labs(
+    x = "Number of loci",
+    y = "Accuracy"
+  ) +
+  guides(fill = "none") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), axis.ticks.length = unit(0, "lines")) +
+  ggtitle("Quartet") +
+  lims(y = c(0, 1))
+
+pjoint
+pmarg
+pquart
+```
+
+
 # Determining the best tests
 
-```{r, fig.width=6, fig.height=4}
+```{r, fig.width=6, fig.height=4, include=TRUE}
 best_test_df <- df %>%
   filter(selected) %>%
   group_by(test, model, eps, trueh) %>%
@@ -227,7 +355,7 @@ semi_join(df, best_test_df, c("test", "model", "eps")) %>%
   group_by(ngt, trueh, test) %>%
   summarise(acc = mean(trueh == esth)) %>%
   ggplot(aes(x = factor(trueh), y = acc, fill = factor(trueh), group = interaction(test, trueh, ngt))) +
-  geom_col(position = position_dodge2()) +
+  geom_col(position = position_dodge2(), color = "black") +
   theme_bw() +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
   facet_wrap(~ ngt) +
@@ -238,7 +366,7 @@ semi_join(df, best_test_df, c("test", "model", "eps")) %>%
 
 Further segregating by `ngt`.
 
-```{r, fig.width=10, fig.height=6}
+```{r, fig.width=10, fig.height=6, include=TRUE}
 best_test_df <- df %>%
   filter(selected) %>%
   group_by(test, model, eps, trueh, ngt) %>%
@@ -263,7 +391,7 @@ p_ngtdf <- df %>%
   summarise(acc = mean(trueh == esth))
 
 p10 <- ggplot(filter(p_ngtdf, ngt == 10), aes(x = factor(trueh), y = acc, fill = factor(trueh), group = interaction(test, trueh, ngt))) +
-  geom_col(position = position_dodge2()) +
+  geom_col(position = position_dodge2(), color = "black") +
   theme_bw() +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
   facet_wrap(~ ngt) +
@@ -271,7 +399,7 @@ p10 <- ggplot(filter(p_ngtdf, ngt == 10), aes(x = factor(trueh), y = acc, fill =
     first(filter(best_test_df, ngt == 10)$test), " [", first(filter(best_test_df, ngt == 10)$model), "] (eps=", first(filter(best_test_df, ngt == 10)$eps), ")", "[", nrow(filter(best_test_df, ngt == 10)), "]", collapse="\n"
   ))
 p50 <- ggplot(filter(p_ngtdf, ngt == 50), aes(x = factor(trueh), y = acc, fill = factor(trueh), group = interaction(test, trueh, ngt))) +
-  geom_col(position = position_dodge2()) +
+  geom_col(position = position_dodge2(), color = "black") +
   theme_bw() +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
   facet_wrap(~ ngt) +
@@ -279,7 +407,7 @@ p50 <- ggplot(filter(p_ngtdf, ngt == 50), aes(x = factor(trueh), y = acc, fill =
     first(filter(best_test_df, ngt == 50)$test), " [", first(filter(best_test_df, ngt == 50)$model), "] (eps=", first(filter(best_test_df, ngt == 50)$eps), ")", "[", nrow(filter(best_test_df, ngt == 50)), "]", collapse="\n"
   ))
 p100 <- ggplot(filter(p_ngtdf, ngt == 100), aes(x = factor(trueh), y = acc, fill = factor(trueh), group = interaction(test, trueh, ngt))) +
-  geom_col(position = position_dodge2()) +
+  geom_col(position = position_dodge2(), color = "black") +
   theme_bw() +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
   facet_wrap(~ ngt) +
@@ -287,7 +415,7 @@ p100 <- ggplot(filter(p_ngtdf, ngt == 100), aes(x = factor(trueh), y = acc, fill
     first(filter(best_test_df, ngt == 100)$test), " [", first(filter(best_test_df, ngt == 100)$model), "] (eps=", first(filter(best_test_df, ngt == 100)$eps), ")", "[", nrow(filter(best_test_df, ngt == 100)), "]", collapse="\n"
   ))
 p500 <- ggplot(filter(p_ngtdf, ngt == 500), aes(x = factor(trueh), y = acc, fill = factor(trueh), group = interaction(test, trueh, ngt))) +
-  geom_col(position = position_dodge2()) +
+  geom_col(position = position_dodge2(), color = "black") +
   theme_bw() +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
   facet_wrap(~ ngt) +
@@ -295,7 +423,7 @@ p500 <- ggplot(filter(p_ngtdf, ngt == 500), aes(x = factor(trueh), y = acc, fill
     first(filter(best_test_df, ngt == 500)$test), " [", first(filter(best_test_df, ngt == 500)$model), "] (eps=", first(filter(best_test_df, ngt == 500)$eps), ")", "[", nrow(filter(best_test_df, ngt == 500)), "]", collapse="\n"
   ))
 p1000 <- ggplot(filter(p_ngtdf, ngt == 1000), aes(x = factor(trueh), y = acc, fill = factor(trueh), group = interaction(test, trueh, ngt))) +
-  geom_col(position = position_dodge2()) +
+  geom_col(position = position_dodge2(), color = "black") +
   theme_bw() +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
   facet_wrap(~ ngt) +
@@ -306,6 +434,44 @@ p1000 <- ggplot(filter(p_ngtdf, ngt == 1000), aes(x = factor(trueh), y = acc, fi
 p10 + p50 + p100 + p500 + p1000 + plot_layout(axes="collect", guides="collect")
 ```
 
+Results based on the tests that are tied for best performance with 50 gene trees (because >50 has many contenders getting perfect scores)
+
+```{r, fig.height=6, fig.width=10, include=TRUE}
+best_test_df <- df %>%
+  filter(selected & ngt == 50) %>%
+  group_by(test, model, eps, trueh) %>%
+  summarise(
+    acc = mean(trueh == esth),
+    meandiff = mean(abs(trueh - esth)),
+    ntests = n(),
+    .groups = "drop"
+  ) %>%
+  group_by(test, model, eps) %>%
+  summarise(
+    prodacc = prod(acc),
+    ntests = sum(ntests),
+    .groups = "drop"
+  ) %>%
+  filter(prodacc == max(prodacc)) %>%
+  ungroup()
+
+plots <- list()
+for(i in 1:nrow(best_test_df)) {
+  plots[[i]] <- semi_join(df, best_test_df[i, ], c("test", "model", "eps")) %>%
+    filter(selected) %>%
+    group_by(ngt, trueh, test) %>%
+    summarise(acc = mean(trueh == esth), .groups = "drop") %>%
+    ggplot(aes(x = factor(trueh), y = acc, fill = factor(trueh), group = interaction(test, trueh, ngt))) +
+    geom_col(position = position_dodge2(), color = "black") +
+    theme_bw() +
+    scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+    facet_wrap(~ ngt) +
+    ggtitle(paste0(
+      best_test_df$test[i], " [", best_test_df$model[i], "] (eps=", best_test_df$eps[i], ")", collapse="\n"
+    ))
+}
+plots
+```
 
 
 

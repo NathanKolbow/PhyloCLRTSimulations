@@ -170,7 +170,7 @@ best_roc_df <- roc_df %>%
 	group_by(ngt, gamma_group) %>%
 	arrange(desc(eps)) %>%
 	mutate(
-		test = if_else(length(unique(test)) == 1, paste0(first(test), "-", paste(unique(model), collapse=","), " (ϵ = ", paste(unique(eps), collapse=","), ")"), "Tie")
+		test = if_else(length(unique(test)) == 1, paste0(first(test), "-", paste(unique(model), collapse=","), " (eps = ", paste(unique(eps), collapse=","), ")"), "Tie")
 	) %>%
 	ungroup() %>%
 	arrange(tpr) %>%
@@ -183,7 +183,7 @@ append_df <- best_roc_df %>%
 	filter(row_number() == n()) %>%
 	mutate(fpr = 1)
 
-rbind(prepend_df, best_roc_df, append_df) %>%
+proc_best <- rbind(prepend_df, best_roc_df, append_df) %>%
 	ggplot(aes(x = fpr, y = tpr, color = test, fill = test)) +
 	geom_line(linewidth=1) +
 	geom_area(position = "identity", alpha = 0.25) +
@@ -198,6 +198,11 @@ rbind(prepend_df, best_roc_df, append_df) %>%
 		color = "Test",
 		fill = "Test"
 	)
+proc_best
+
+pdf("roc-best_tests.pdf", width=10, height=7)
+proc_best
+dev.off()
 
 
 ###### SAME AS ABOVE, BUT: show all ties individually ######
@@ -256,7 +261,7 @@ rbind(prepend_df, best_roc_df, append_df) %>%
 
 
 ###### Select best (model, eps) for each (ngt, gamma_group) combo for ONE TEST ######
-TEST <- "CLIC"
+TEST <- "cw"
 S <- auc_df %>%
 	filter(test == TEST) %>%
 	group_by(ngt, gamma_group) %>%
@@ -297,7 +302,7 @@ append_df <- best_roc_df %>%
 	filter(row_number() == n()) %>%
 	mutate(fpr = 1)
 
-rbind(best_roc_df, append_df) %>%
+proc_bestcw <- rbind(best_roc_df, append_df) %>%
 	ggplot(aes(x = fpr, y = tpr, color = test, fill = test)) +
 	geom_line(linewidth=1) +
 	geom_area(position = "identity", alpha = 0.25) +
@@ -312,28 +317,8 @@ rbind(best_roc_df, append_df) %>%
 		color = "Test",
 		fill = "Test"
 	)
+proc_bestcw
 
-
-
-
-# What if we ust use `geom_roc` from `plotROC`? ...
-library(plotROC)
-
-plotROCdf <- rbind(
-		type1df  %>%
-			filter(ngt == 100 & eps == 0.001 & model == "joint"),	
-		type2df  %>%
-			filter(ngt == 100 & eps == 0.001 & model == "joint" & gamma >= 0.25 & gamma <= 0.35)
-	) %>%
-	mutate(D = if_else(truth == "H0", 1, 0))
-
-plotROCdf %>%
-	ggplot(aes(m = result, d = D, color = test)) +
-	geom_roc(labels = FALSE, pointalpha = 0) +
-	annotate(
-		"text", x = .75, y = .25, 
-		label = paste("AUC =", round(calc_auc(basicplot)$AUC, 2))
-	)
-
-
-ggplot()
+pdf("roc-best_cw.pdf", width=10, height=7)
+proc_bestcw
+dev.off()

@@ -41,3 +41,6 @@ troubleshooting/
 
 # Old folder yet to be grandfathered in
 type2error/tests-perfect-data/
+
+# RMarkdown generated files
+*.html

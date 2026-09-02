@@ -101,26 +101,23 @@ for irep = 1:NREP, ngt in NGTS, t in TS, model in MODELS, trueh in TRUEH
 			end
 		catch e
 		end
+		
+		@simlog "\t\tOld DDSE and Djump" try
+			rows = []
+			hmaxes = collect(0:(length(snaqnets)-1))
+			quartet_DDSE_pens = PhyloCLRT.DDSEpenalties(SNaQscore.(snaqnets), hmaxes, ngt)
+			Djumpbest = PhyloCLRT.Djumpbestmodel(SNaQscore.(snaqnets), hmaxes, ngt)
+			quartet_Djump_pens = [hmax == Djumpbest ? 1.0 : 0.0 for hmax in hmaxes]
 
-		################ DDSE and Djump for new AND old models [old only if ϵ=0] ################
-		if ϵ == 0.0
-			@simlog "\t\tOld DDSE and Djump" try
-				rows = []
-				hmaxes = collect(0:(length(snaqnets)-1))
-				quartet_DDSE_pens = PhyloCLRT.DDSEpenalties(SNaQscore.(snaqnets), hmaxes, ngt)
-				Djumpbest = PhyloCLRT.Djumpbestmodel(SNaQscore.(snaqnets), hmaxes, ngt)
-				quartet_Djump_pens = [hmax == Djumpbest ? 1.0 : 0.0 for hmax in hmaxes]
-
-				for (DDSE_pen, Djump_pen, hmax) in zip(quartet_DDSE_pens, quartet_Djump_pens, 0:(trueh+HOVEREST+3))
-					push!(rows, [simid, ngt, t, "quartet", "DDSE", DDSE_pen, ϵ, trueh, hmax])
-					push!(rows, [simid, ngt, t, "quartet", "Djump", Djump_pen, ϵ, trueh, hmax])
-				end
-				# Only push rows if everything works
-				for row in rows
-					push!(dat, row)
-				end
-			catch e
+			for (DDSE_pen, Djump_pen, hmax) in zip(quartet_DDSE_pens, quartet_Djump_pens, 0:(trueh+HOVEREST+3))
+				push!(rows, [simid, ngt, t, "quartet", "DDSE", DDSE_pen, ϵ, trueh, hmax])
+				push!(rows, [simid, ngt, t, "quartet", "Djump", Djump_pen, ϵ, trueh, hmax])
 			end
+			# Only push rows if everything works
+			for row in rows
+				push!(dat, row)
+			end
+		catch e
 		end
 
 		CSV.write(outpath, dat)

@@ -16,7 +16,7 @@ length(ARGS) > 0 || error("Must provide 1 command line argument for the value of
 ϵ in [0, 0.0001, 0.001, 0.01, 0.1, 0.5, 1.0] || error("ϵ=$(ϵ) not allowed.")
 @info "ϵ = $ϵ selected."
 
-const NGTS  	= [100, 1000]; #[10, 100, 1000];
+const NGTS  	= [10, 100, 1000];
 const TS    	= [1.0];
 const NREP  	= 250;
 const MODELS 	= ["joint", "marginal"];
@@ -29,7 +29,7 @@ dat = isfile(outpath) ? CSV.read(outpath, DataFrame) :
 		ngt=Int64[], t=Float64[], model=String[], test=String[], result=Float64[], eps=Float64[], gamma=Float64[]
 	)
 
-for ngt in NGTS, t in TS, irep = 1:NREP, model in MODELS
+for irep = 1:NREP, ngt in NGTS, t in TS, model in MODELS
 	hasall(dat, ϵ, model, ngt, TESTS, NREP) && continue
 	print("\rmodel=$model ngt=$ngt                              ")
 

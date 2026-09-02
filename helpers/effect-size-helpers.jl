@@ -129,4 +129,53 @@ function snaqnetsearch(
 	end
 	return net
 end
-using SNaQ
+
+"""
+Returns 2-tuple with (abs sum of edge length errors, abs gamma error)
+"""
+function absparamerrors(truenet::HybridNetwork, estnet::HybridNetwork)::NTuple{2, Float64}
+	truenet.numhybrids == 1 && estnet.numhybrids == 1 || error("Function written for only 1 hybrid")
+	if length(getroot(estnet).edge) == 3
+		# If `estnet` is from SNaQ, semi-direct the `truenet`
+		truenet = deepcopy(truenet)
+		SNaQ.semidirectnetwork!(truenet)
+	end
+
+	true_emcs = [leaveunderedgemajorpath(E) for E in truenet.edge]
+	snaq_emcs = [leaveunderedgemajorpath(E) for E in estnet.edge]
+
+	true_order = sortperm(true_emcs)
+	snaq_order = sortperm(snaq_emcs)
+
+	absterror = 0.0
+	for i in eachindex(true_order)
+		absterror += abs(truenet.edge[true_order[i]].length - estnet.edge[snaq_order[i]].length)
+	end
+
+	trueγ = getparentedgeminor(truenet.hybrid[1]).gamma
+	snaqγ = getparentedgeminor(estnet.hybrid[1]).gamma
+	return (absterror, abs(trueγ - snaqγ))
+end
+
+function leaveunderedgemajorpath(edge::PhyloNetworks.Edge)::Vector{String}
+	leaves = String[]
+	Q = [edge]
+	i = 0
+	while length(Q) > 0
+		i += 1
+		i > 1000 && error("i > 1000")
+		curr = Q[1]
+		deleteat!(Q, 1)
+
+		if getchild(curr).leaf
+			push!(leaves, getchild(curr).name)
+		else
+			for E in getchild(curr).edge
+				if E == curr continue end
+				if E.hybrid && !E.ismajor continue end
+				push!(Q, E)
+			end
+		end
+	end
+	return leaves
+end

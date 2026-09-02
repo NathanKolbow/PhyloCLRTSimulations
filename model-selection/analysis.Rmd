@@ -26,7 +26,9 @@ alldata <- rbind(
   read.csv("dat-eps0.001.csv"),
   # read.csv("dat-eps0.0001.csv"),
   read.csv("dat-eps1.0.csv")
-) %>% filter(test != "DDSE" & test != "Djump")
+) %>%
+  #filter(test != "DDSE" & test != "Djump") %>%
+  mutate(eps = if_else(model == "quartet", 0.0, eps))
 
 df <- alldata %>%
   filter(test != "CLIC" & test != "DDSE" & test != "Djump") %>%
@@ -473,6 +475,8 @@ for(i in 1:nrow(best_test_df)) {
 plots
 ```
 
+
+# DDSE / Djump
 
 
 

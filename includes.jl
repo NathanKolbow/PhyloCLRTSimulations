@@ -8,7 +8,7 @@ redirect_stderr(devnull)
 
 using Pkg
 Pkg.activate(B);
-using DataFrames, CSV, RCall	# RCall needs to be loaded before the block containing `@rlibrary` for some reason...
+using DataFrames, CSV
 using PhyloNetworks, SNaQ, InPhyNet, PhyloCoalSimulations, PhyloCLRT
 import PhyloCLRT: TestData, HypothesisData, optimize_parameters∇!, optimize_root_placement,
 	getHypothData,
@@ -41,11 +41,11 @@ try
 		end
 	end
 
-	# Load the libs while output is hidden
-	R"""
-	library(capushe)
-	library(tidyverse)
-	"""
+	# # Load the libs while output is hidden
+	# R"""
+	# library(capushe)
+	# library(tidyverse)
+	# """
 finally
 	redirect_stdout(so)
 	redirect_stderr(se)

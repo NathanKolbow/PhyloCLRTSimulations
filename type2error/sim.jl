@@ -4,7 +4,7 @@ length(ARGS) > 0 || error("Must provide 1 command line argument for the value of
 ϵ = parse(Float64, ARGS[1])
 ϵ in [0, 0.0001, 0.001, 0.01, 0.1, 1.0] || error("ϵ=$(ϵ) not allowed.")
 
-const NGTS  	= [100, 10, 1000];
+const NGTS  	= [50, 100, 1000];
 const TS    	= [1.0];
 const GAMMAS    = 0.0:0.01:0.50;
 const NREP  	= 1000;
@@ -61,16 +61,31 @@ for irep = 1:NREP, ngt in NGTS, t in TS, model in MODELS
 			snaqerrors = absparamerrors(truenet, snaqH1)
 			newerrors = absparamerrors(truenet, optH1)
 			for test in TESTS
-				push!(dat, [simid, γ, ϵ, test, model, run_test(
-					optH1, test, CompTypes([lkH0[[1, 3, 4]]..., lkH1...])
+				try
+					push!(dat, [simid, γ, ϵ, test, model, run_test(
+						optH1, test, CompTypes([lkH0[[1, 3, 4]]..., lkH1...])
+					), t, ngt, snaqerrors..., newerrors...])
+				catch end
+				try
+				push!(dat, [simid, γ, ϵ, test, "quartet", run_test_old_model(
+					snaqH0, snaqH1, gts, test
 				), t, ngt, snaqerrors..., newerrors...])
+				catch end
 			end
 
 			# CLIC
+			try
 			push!(dat, [simid, γ, ϵ, "CLIC", model,
 				CLICstatistic(lkH1[4], lkH1[3], lkH1[1]) - CLICstatistic(lkH0[4], lkH0[3], lkH0[1]),
 				t, ngt, snaqerrors..., newerrors...
 			])
+			catch end
+			try
+			push!(dat, [simid, γ, ϵ, "CLIC", "quartet",
+				quartetCLICstatistic(snaqH1, gts) - quartetCLICstatistic(snaqH0, gts),
+				t, ngt, snaqerrors..., newerrors...
+			])
+			catch end
 		end
 		CSV.write(outpath, dat)
 	end

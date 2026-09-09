@@ -14,18 +14,22 @@ type1df <- rbind(
 		read.csv("../type1error/dat-eps0.001.csv"),
 		read.csv("../type1error/dat-eps0.01.csv"),
 		read.csv("../type1error/dat-eps0.1.csv"),
-		read.csv("../type1error/dat-eps0.5.csv"),
 		read.csv("../type1error/dat-eps1.0.csv")
 	) %>% mutate(truth = "H0")
 type2df <- rbind(
-		read.csv("../../CLRT/src/model_expansion/tests-perfect-data/dat-eps0.0.csv"),
-		read.csv("../../CLRT/src/model_expansion/tests-perfect-data/dat-eps0.001.csv"),
-		read.csv("../../CLRT/src/model_expansion/tests-perfect-data/dat-eps0.01.csv"),
-		read.csv("../../CLRT/src/model_expansion/tests-perfect-data/dat-eps0.1.csv"),
-		read.csv("../../CLRT/src/model_expansion/tests-perfect-data/dat-eps0.1.csv"),
-		read.csv("../../CLRT/src/model_expansion/tests-perfect-data/dat-eps0.5.csv"),
-		read.csv("../../CLRT/src/model_expansion/tests-perfect-data/dat-eps1.0.csv")
-	) %>% mutate(truth = "H1")
+		read.csv("../type2error/dat-eps0.0.csv"),
+		read.csv("../type2error/dat-eps0.0001.csv"),
+		read.csv("../type2error/dat-eps0.001.csv"),
+		read.csv("../type2error/dat-eps0.01.csv"),
+		read.csv("../type2error/dat-eps0.1.csv"),
+		read.csv("../type2error/dat-eps0.1.csv"),
+		read.csv("../type2error/dat-eps1.0.csv")
+	) %>%
+	select(ngt, t, model, test, result, eps, gamma) %>%
+	mutate(truth = if_else(gamma == 0, "H0", "H1"))
+
+type1df <- filter(type1df, ngt %in% intersect(unique(type1df$ngt), unique(type2df$ngt)))
+type2df <- filter(type2df, ngt %in% intersect(unique(type1df$ngt), unique(type2df$ngt)))
 nrow(type1df)
 nrow(type2df)
 
@@ -316,7 +320,8 @@ proc_bestcw <- rbind(best_roc_df, append_df) %>%
 		y = "True Positive Rate",
 		color = "Test",
 		fill = "Test"
-	)
+	) +
+	ggtitle("cw Only")
 proc_bestcw
 
 pdf("roc-best_cw.pdf", width=10, height=7)

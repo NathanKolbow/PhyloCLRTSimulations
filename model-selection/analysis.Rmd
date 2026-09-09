@@ -19,16 +19,16 @@ library(cowplot)
 ```{r load_data, include=FALSE}
 alphas <- c(-0.001, 0, 0.001, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99, 0.99999, 1.0, 1.01)
 st <- Sys.time()
+Qdat <- read.csv("old-data/dat-eps0.0.csv") %>% filter(model == "quartet")
 alldata <- rbind(
   read.csv("dat-eps0.0.csv"),
   read.csv("dat-eps0.1.csv"),
   read.csv("dat-eps0.01.csv"),
   read.csv("dat-eps0.001.csv"),
-  # read.csv("dat-eps0.0001.csv"),
-  read.csv("dat-eps1.0.csv")
-) %>%
-  #filter(test != "DDSE" & test != "Djump") %>%
-  mutate(eps = if_else(model == "quartet", 0.0, eps))
+  read.csv("dat-eps0.0001.csv"),
+  read.csv("dat-eps1.0.csv"),
+  Qdat
+)
 
 df <- alldata %>%
   filter(test != "CLIC" & test != "DDSE" & test != "Djump") %>%
@@ -66,7 +66,7 @@ best_alpha <- df %>%
 df <- df %>%
   semi_join(best_alpha, c("test", "model", "eps", "alpha", "ngt")) %>%
   mutate(result = if_else(test == "CLIC", sign(result) * log(0.1 + abs(result)), result))
-Sys.time() - st    # 37.83776
+Sys.time() - st    # 86.4
 ```
 
 
@@ -96,7 +96,7 @@ df %>%
 ```{r}
 EPS <- 0.
 df %>%
-  filter(eps == EPS & test == "CLIC") %>%
+  filter(eps == EPS & test == "cw") %>%
   ggplot(aes(x = esth, y = result, color = factor(trueh), group = interaction(simid, test, model, ngt))) +
   geom_point() +
   geom_line() +
@@ -424,16 +424,16 @@ p500 <- ggplot(filter(p_ngtdf, ngt == 500), aes(x = factor(trueh), y = acc, fill
   ggtitle(paste0(
     first(filter(best_test_df, ngt == 500)$test), " [", first(filter(best_test_df, ngt == 500)$model), "] (eps=", first(filter(best_test_df, ngt == 500)$eps), ")", "[", nrow(filter(best_test_df, ngt == 500)), "]", collapse="\n"
   ))
-p1000 <- ggplot(filter(p_ngtdf, ngt == 1000), aes(x = factor(trueh), y = acc, fill = factor(trueh), group = interaction(test, trueh, ngt))) +
-  geom_col(position = position_dodge2(), color = "black") +
-  theme_bw() +
-  scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
-  facet_wrap(~ ngt) +
-  ggtitle(paste0(
-    first(filter(best_test_df, ngt == 1000)$test), " [", first(filter(best_test_df, ngt == 1000)$model), "] (eps=", first(filter(best_test_df, ngt == 1000)$eps), ")", "[", nrow(filter(best_test_df, ngt == 1000)), "]", collapse="\n"
-  ))
+# p1000 <- ggplot(filter(p_ngtdf, ngt == 1000), aes(x = factor(trueh), y = acc, fill = factor(trueh), group = interaction(test, trueh, ngt))) +
+#   geom_col(position = position_dodge2(), color = "black") +
+#   theme_bw() +
+#   scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+#   facet_wrap(~ ngt) +
+#   ggtitle(paste0(
+#     first(filter(best_test_df, ngt == 1000)$test), " [", first(filter(best_test_df, ngt == 1000)$model), "] (eps=", first(filter(best_test_df, ngt == 1000)$eps), ")", "[", nrow(filter(best_test_df, ngt == 1000)), "]", collapse="\n"
+#   ))
 
-p10 + p50 + p100 + p500 + p1000 + plot_layout(axes="collect", guides="collect")
+p10 + p50 + p100 + p500 + plot_layout(axes="collect", guides="collect")
 ```
 
 Results based on the tests that are tied for best performance with 50 gene trees (because >50 has many contenders getting perfect scores)

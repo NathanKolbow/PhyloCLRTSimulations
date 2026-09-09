@@ -4,10 +4,10 @@ length(ARGS) > 0 || error("Must provide 1 command line argument for the value of
 ϵ = parse(Float64, ARGS[1])
 ϵ in [0, 0.0001, 0.001, 0.01, 0.1, 1.0] || error("ϵ=$(ϵ) not allowed.")
 
-const NGTS  	= [50, 100, 1000];
+const NGTS  	= [10, 50, 100, 500];
 const TS    	= [1.0];
-const GAMMAS    = 0.0:0.01:0.50;
-const NREP  	= 1000;
+const GAMMAS    = 0.0:0.05:0.50;
+const NREP  	= 10;
 const MODELS 	= ["joint", "marginal"];
 const TESTS 	= ["cw", "cwP", "cLR", "cLR1", "cLR2", "cLRI"];
 
@@ -23,12 +23,13 @@ dat = isfile(outpath) ? CSV.read(outpath, DataFrame) :
 dat[!,:model] = convert.(String, dat[!,:model])
 dat[!,:test] = convert.(String, dat[!,:test])
 
-for irep = 1:NREP, ngt in NGTS, t in TS, model in MODELS
+for ngt in NGTS, t in TS, model in MODELS, irep = 1:NREP
 	simid = abs(rand(Int64))
 	Random.seed!(simid)
 
 	@simlog "\n\nngt=$ngt model=$model irep=$irep"
-
+	
+	try
 	truenet = generate_network(10, 1, t, 0.5; forcetcgident=true)
 	for γ in GAMMAS
 		@simlog "\tγ=$γ" begin
@@ -89,6 +90,7 @@ for irep = 1:NREP, ngt in NGTS, t in TS, model in MODELS
 		end
 		CSV.write(outpath, dat)
 	end
+	catch end
 	CSV.write(outpath, dat)
 end
 CSV.write(outpath, dat)

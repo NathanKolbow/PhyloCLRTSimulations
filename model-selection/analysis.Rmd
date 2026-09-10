@@ -66,7 +66,7 @@ best_alpha <- df %>%
 df <- df %>%
   semi_join(best_alpha, c("test", "model", "eps", "alpha", "ngt")) %>%
   mutate(result = if_else(test == "CLIC", sign(result) * log(0.1 + abs(result)), result))
-Sys.time() - st    # 86.4
+Sys.time() - st    # 144
 ```
 
 
@@ -101,6 +101,24 @@ df %>%
   geom_point() +
   geom_line() +
   facet_nested(ngt ~ model, scales="free") +
+  geom_hline(yintercept = 0, alpha = 0.25, linetype = "dashed")
+```
+
+```{r}
+df %>%
+  filter(eps == 0.0 & test == "CLIC" & model == "quartet") %>%
+  group_by(simid, ngt, trueh) %>%
+  mutate(result = result - max(result)) %>%
+  mutate(selected = result == min(result)) %>%
+  ungroup() %>%
+  group_by(ngt, trueh) %>%
+  filter(selected) %>%
+  summarise(acc = mean(esth == trueh))
+
+  ggplot(aes(x = esth, y = result, color = factor(trueh), group = interaction(simid, test, model, ngt))) +
+  geom_point() +
+  geom_line(alpha = 0.1) +
+  facet_nested(ngt ~ trueh, scales="free") +
   geom_hline(yintercept = 0, alpha = 0.25, linetype = "dashed")
 ```
 

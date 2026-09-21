@@ -11,7 +11,7 @@
 
 Threads.nthreads() > 1 || @warn "Only $(Threads.nthreads()) threads are in use."
 
-length(ARGS) > 0 || error("Must provide 1 command line argument for the value of ϵ (0, 0.0001, 0.001, 0.01, 0.1, 0.5, or 1.0)")
+length(ARGS) == 1 || error("Must provide 1 command line argument for the value of ϵ (0, 0.0001, 0.001, 0.01, 0.1, 0.5, or 1.0)")
 ϵ = parse(Float64, ARGS[1])
 ϵ in [0, 0.0001, 0.001, 0.01, 0.1, 0.5, 1.0] || error("ϵ=$(ϵ) not allowed.")
 @info "ϵ = $ϵ selected."
@@ -53,9 +53,9 @@ for irep = 1:NREP, ngt in NGTS, t in TS, model in MODELS
 	end
 
 	print("\rmodel=$model ngt=$ngt    [r=$irep H0 opt]       ")
-	H0 = optimize_given_model(H0, gts, model)
+	H0 = optimize_given_model(H0, gts, model, ϵ)
 	print("\rmodel=$model ngt=$ngt    [r=$irep H1 opt]       ")
-	H1 = optimize_given_model(H1, gts, model)
+	H1 = optimize_given_model(H1, gts, model, ϵ)
 	estγ = getparentedgeminor(H1.hybrid[1]).gamma
 
 	# Testing

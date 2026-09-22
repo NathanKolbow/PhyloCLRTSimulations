@@ -131,51 +131,95 @@ function snaqnetsearch(
 end
 
 """
-Returns 2-tuple with (abs sum of edge length errors, abs gamma error)
+Returns 2-tuple with (abs sum of internal edge length errors, abs gamma error) between two
+networks with the same topology and 1 hybrid.
+
+Edges are paired with root-free keys (see `rootfreeedgekeys`), so the result does not depend on
+where either network is rooted, on whether it is semidirected, or on which hybrid parent edge
+is labeled major. Pendant edges are not estimated by either model and are ignored.
 """
 function absparamerrors(truenet::HybridNetwork, estnet::HybridNetwork)::NTuple{2, Float64}
 	truenet.numhybrids == 1 && estnet.numhybrids == 1 || error("Function written for only 1 hybrid")
-	if length(getroot(estnet).edge) == 3
-		# If `estnet` is from SNaQ, semi-direct the `truenet`
-		truenet = deepcopy(truenet)
-		SNaQ.semidirectnetwork!(truenet)
-	end
-
-	true_emcs = [leaveunderedgemajorpath(E) for E in truenet.edge]
-	snaq_emcs = [leaveunderedgemajorpath(E) for E in estnet.edge]
-
-	true_order = sortperm(true_emcs)
-	snaq_order = sortperm(snaq_emcs)
+	truechains = rootfreeedgekeys(truenet)
+	estchains = rootfreeedgekeys(estnet)
+	Set(keys(truechains)) == Set(keys(estchains)) || error("truenet and estnet have different topologies")
 
 	absterror = 0.0
-	for i in eachindex(true_order)
-		absterror += abs(truenet.edge[true_order[i]].length - estnet.edge[snaq_order[i]].length)
+	for (k, c) in truechains
+		c.pendant && continue
+		absterror += abs(c.length - estchains[k].length)
 	end
 
-	trueγ = getparentedgeminor(truenet.hybrid[1]).gamma
-	snaqγ = getparentedgeminor(estnet.hybrid[1]).gamma
-	return (absterror, abs(trueγ - snaqγ))
+	# γ of the true minor hybrid edge vs. γ of the same edge in `estnet`
+	trueminor = getparentedgeminor(truenet.hybrid[1])
+	k = only(k for (k, c) in truechains if any(e -> e === trueminor, c.hybridedges))
+	estedge = only(estchains[k].hybridedges)
+	return (absterror, abs(trueminor.gamma - estedge.gamma))
 end
 
-function leaveunderedgemajorpath(edge::PhyloNetworks.Edge)::Vector{String}
-	leaves = String[]
-	Q = [edge]
-	i = 0
-	while length(Q) > 0
-		i += 1
-		i > 1000 && error("i > 1000")
-		curr = Q[1]
-		deleteat!(Q, 1)
+"""
+Maps a root-free key to each "chain" of `net`: a maximal path of edges whose interior nodes have
+degree 2 (a root, or an old root left behind by rerooting). A chain's length is the sum of its
+edge lengths, so a rooted network and its semidirected version have the same chains.
 
-		if getchild(curr).leaf
-			push!(leaves, getchild(curr).name)
-		else
-			for E in getchild(curr).edge
-				if E == curr continue end
-				if E.hybrid && !E.ismajor continue end
-				push!(Q, E)
+Keys ignore edge directions:
+- a chain whose removal disconnects the network is keyed by the leaves on the side that does not
+  contain the alphabetically first leaf
+- a chain on a cycle is keyed by the pair of leaf sets hanging off its two end nodes
+"""
+function rootfreeedgekeys(net::HybridNetwork)
+	isend(n) = length(n.edge) != 2
+	other(e, n) = e.node[1] === n ? e.node[2] : e.node[1]
+
+	chains = []
+	seen = Base.IdSet{PhyloNetworks.Edge}()
+	for n in net.node, e in n.edge
+		(isend(n) && !(e in seen)) || continue
+		cur, edge, len, hybs = n, e, 0.0, PhyloNetworks.Edge[]
+		while true
+			push!(seen, edge)
+			len += edge.length
+			edge.hybrid && push!(hybs, edge)
+			cur = other(edge, cur)
+			isend(cur) && break
+			edge = only(x for x in cur.edge if x !== edge)
+		end
+		push!(chains, (a=n, b=cur, length=len, hybridedges=hybs, pendant=n.leaf || cur.leaf))
+	end
+
+	# nodes reachable from `start` without using the chains in `blocked`
+	function reachable(start, blocked)
+		found = Base.IdSet{PhyloNetworks.Node}([start])
+		stack = [start]
+		while !isempty(stack)
+			n = pop!(stack)
+			for (i, c) in enumerate(chains)
+				(i in blocked || !(c.a === n || c.b === n)) && continue
+				m = c.a === n ? c.b : c.a
+				m in found || (push!(found, m); push!(stack, m))
 			end
 		end
+		return found
 	end
-	return leaves
+	reachableleaves(start, blocked) = sort([n.name for n in reachable(start, blocked) if n.leaf])
+
+	ref = minimum(l.name for l in net.leaf)
+	allleaves = sort([l.name for l in net.leaf])
+	# a chain is on a cycle if its end nodes stay connected without it
+	oncycle = [c.b in reachable(c.a, [i]) for (i, c) in enumerate(chains)]
+	cycleidx = findall(oncycle)
+	hanging(n) = reachableleaves(n, cycleidx)
+
+	keyed = Dict{Any, Any}()
+	for (i, c) in enumerate(chains)
+		k = if oncycle[i]
+			("cycle", sort([hanging(c.a), hanging(c.b)]))
+		else
+			side = reachableleaves(c.a, [i])
+			("split", ref in side ? setdiff(allleaves, side) : side)
+		end
+		haskey(keyed, k) && error("two edges of the network share the key $k")
+		keyed[k] = c
+	end
+	return keyed
 end

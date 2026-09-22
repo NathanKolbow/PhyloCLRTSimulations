@@ -66,12 +66,16 @@ for ngt in NGTS, t in TS, model in MODELS, irep = 1:NREP
 					push!(dat, [simid, γ, ϵ, test, model, run_test(
 						optH1, test, CompTypes([lkH0[[1, 3, 4]]..., lkH1...])
 					), t, ngt, snaqerrors..., newerrors...])
-				catch end
+				catch e
+					@warn "$test ($model) failed; no row written" simid γ ngt exception=e
+				end
 				try
 				push!(dat, [simid, γ, ϵ, test, "quartet", run_test_old_model(
 					snaqH0, snaqH1, gts, test
 				), t, ngt, snaqerrors..., newerrors...])
-				catch end
+				catch e
+					@warn "$test (quartet) failed; no row written" simid γ ngt exception=e
+				end
 			end
 
 			# CLIC
@@ -80,17 +84,23 @@ for ngt in NGTS, t in TS, model in MODELS, irep = 1:NREP
 				CLICstatistic(lkH1[4], lkH1[3], lkH1[1]) - CLICstatistic(lkH0[4], lkH0[3], lkH0[1]),
 				t, ngt, snaqerrors..., newerrors...
 			])
-			catch end
+			catch e
+				@warn "CLIC ($model) failed; no row written" simid γ ngt exception=e
+			end
 			try
 			push!(dat, [simid, γ, ϵ, "CLIC", "quartet",
 				quartetCLICstatistic(snaqH1, gts) - quartetCLICstatistic(snaqH0, gts),
 				t, ngt, snaqerrors..., newerrors...
 			])
-			catch end
+			catch e
+				@warn "CLIC (quartet) failed; no row written" simid γ ngt exception=e
+			end
 		end
 		CSV.write(outpath, dat)
 	end
-	catch end
+	catch e
+		@warn "replicate failed; its remaining γ values were not run" simid ngt model irep exception=e
+	end
 	CSV.write(outpath, dat)
 end
 CSV.write(outpath, dat)

@@ -3,13 +3,13 @@ using Distributions, Random
 """
 For each row in `qCFs`:
 1. Add an independent draw of `rv_distn` to each qCF
-2. If the minimum qCFs (say `m`) is less than 0, add `m` to all qCFs
+2. If the minimum qCF (say `m`) is less than 0, subtract `m` from all qCFs
 3. Normalize the qCFs so they sum to 1 (divide by their sum)
 """
 function addqCFnoise!(qCFs::Matrix{Float64}, rv_distn::Distribution)
 	for i in axes(qCFs, 1)
 		qCFs[i, :] .+= rand(rv_distn, 3)
-		m = min(qCFs[i, :])
+		m = minimum(qCFs[i, :])
 		if m < 0
 			qCFs[i, :] .-= m
 		end
@@ -21,7 +21,7 @@ end
 	return rand() * (high - low) + low
 end
 
-@inline function runif(n::Int64, low::Float64, high::Float64)::Float64
+@inline function runif(n::Int64, low::Float64, high::Float64)::Vector{Float64}
 	rvs::Vector{Float64} = Array{Float64}(undef, n)
 	for i = 1:n
 		rvs[i] = runif(low, high)
@@ -106,7 +106,5 @@ anyboundaryedges(n::HybridNetwork) = any(e -> !getchild(e).leaf && !getchild(e).
 anyboundarygammas(n::HybridNetwork) = any(e -> e.hybrid && e.gamma <= 0.01, n.edge)
 boundaryedges(n::HybridNetwork) = [e.length for e in n.edge if !getchild(e).leaf && !getchild(e).hybrid && (e.length <= 0.01 || e.length >= 5.0)]
 boundarygammas(n::HybridNetwork) = [e.gamma for e in n.edge if e.hybrid && e.gamma <= 0.01]
-anyboundarygammas(n::HybridNetwork) =
-	any(e -> e.hybrid && e.gamma <= 0.01, n.edge)
 anyboundaries(n::HybridNetwork) = (anyboundaryedges(n), anyboundarygammas(n))
 boundaries(n::HybridNetwork) = (boundaryedges(n), boundarygammas(n))

@@ -10,19 +10,24 @@ function generate_network(ntaxa::Int64, nhyb::Int64, t::Float64, γ::Float64; fo
 	tre = simulatecoalescent(tre, 1, 1)[1];
 
 	local net::HybridNetwork
+	found = false
 	for j = 1:1000
 		net = readnewick(writenewick(tre))
 		for _ = 1:nhyb
 			isnothing(addhybridedge!(net, true, true; fixroot=true)) && break
 		end
 		net.numhybrids != nhyb && continue
-		
-		!forcetcgident && break
-		sdnet = SNaQ.deepcopynetwork(net);
-		SNaQ.semidirectnetwork!(sdnet);
-		SNaQ.tcgidentifiable(sdnet) && break
+
+		if forcetcgident
+			sdnet = SNaQ.deepcopynetwork(net);
+			SNaQ.semidirectnetwork!(sdnet);
+			found = SNaQ.tcgidentifiable(sdnet)
+		else
+			found = true
+		end
+		found && break
 	end
-	net.numhybrids != nhyb && error("Could not find a valid n$(ntaxa)h$(nhyb) network after 1,000 attempts.")
+	found || error("Could not find a valid n$(ntaxa)h$(nhyb) network after 1,000 attempts.")
 
 	for E in net.edge E.length = t end
 	for H in net.hybrid
@@ -33,11 +38,15 @@ function generate_network(ntaxa::Int64, nhyb::Int64, t::Float64, γ::Float64; fo
 	return net
 end
 
+"""
+Errors of `N`'s parameters relative to a network from `generate_network(…, t, γ)`, where every
+edge has length `t` except minor hybrid edges, which have length 0.
+"""
 function parameter_errors(N::HybridNetwork, t::Float64, γ::Float64)::Vector{Float64}
 	errs = Float64[];
 	for E in N.edge
 		getchild(E).leaf && continue
-		if getchild(E).hybrid && E.ismajor
+		if E.hybrid && !E.ismajor
 			push!(errs, E.length)
 		else
 			push!(errs, E.length - t)

@@ -21,6 +21,7 @@ const TS    	= [1.0];
 const NREP  	= 250;
 const MODELS 	= ["joint", "marginal"];
 const TESTS 	= ["cw", "cwP", "cLR", "cLR1", "cLR2", "cLRI"];
+const MAXSNAQRETRIES = 10;	# retries when snaq!(hmax=1) returns a tree
 
 include("../includes.jl")
 outpath = joinpath(@__DIR__, "dat-eps$(ϵ).csv")
@@ -41,64 +42,51 @@ for irep = 1:NREP, ngt in NGTS, t in TS, model in MODELS
 	
 	# Optimizations
 	print("\rmodel=$model ngt=$ngt    [r=$irep H0 SNaQ]       ")
-	snaqH0 = snaq!(readnewick(writenewick(truenet)), dcf; hmax=0, runs=100, Nfail=10, filename="")
-	for E in snaqH0.edge E.length = max(0.1, min(2.5, E.length)) end	# if H0 has boundary edges, soft-reset them
+	snaqH0 = snaq!(readnewick(writenewick(truenet)), dcf; hmax=0, runs=100, Nfail=10, filename="", ρ=1.0)
+	# If H0 has boundary edges, soft-reset them in a copy that is only used as a starting point.
+	# The quartet tests below need `snaqH0` itself at its optimum.
+	startH0 = SNaQ.deepcopynetwork(snaqH0)
+	for E in startH0.edge E.length = max(0.1, min(2.5, E.length)) end
 	print("\rmodel=$model ngt=$ngt    [r=$irep H1 SNaQ]       ")
-	snaqH1 = snaq!(snaqH0, dcf; hmax=1, runs=100, Nfail=10, filename="")
+	snaqH1 = snaq!(startH0, dcf; hmax=1, runs=100, Nfail=10, filename="", ρ=1.0)
 	stuckid = 0
-	while snaqH1.numhybrids == 0
+	while snaqH1.numhybrids == 0 && stuckid < MAXSNAQRETRIES
 		stuckid += 1
 		print("\rmodel=$model ngt=$ngt    [r=$irep H1 SNaQ (#$stuckid)]     ")
-		snaqH1 = snaq!(snaqH0, dcf; hmax=1, runs=100, Nfail=10, filename="")
+		snaqH1 = snaq!(startH0, dcf; hmax=1, runs=100, Nfail=10, filename="", ρ=1.0)
+	end
+	if snaqH1.numhybrids == 0
+		@warn "snaq! found no network for ngt=$ngt after $MAXSNAQRETRIES retries; skipping this replicate."
+		continue
 	end
 
 	print("\rmodel=$model ngt=$ngt    [r=$irep H0 opt]       ")
-	H0 = optimize_given_model(snaqH0, gts, model, ϵ)
+	H0 = optimize_given_model(startH0, gts, model, ϵ)
 	print("\rmodel=$model ngt=$ngt    [r=$irep H1 opt]       ")
 	H1 = optimize_given_model(snaqH1, gts, model, ϵ)
 	estγ = getparentedgeminor(H1.hybrid[1]).gamma
 	snaqestγ = getparentedgeminor(snaqH1.hybrid[1]).gamma
 
 	# Testing
-	try
-		d0s, d1s = get_dists(H0, H1, model)
-		lk_comps = gather_likelihood_components(d0s, d1s, gts, ϵ == 0.0 ? "rough" : "smooth", ϵ)
+	d0s, d1s = get_dists(H0, H1, model)
+	lk_comps = gather_likelihood_components(d0s, d1s, gts, ϵ == 0.0 ? "rough" : "smooth", ϵ)
 
-		for test in TESTS
-			try
-				push!(dat, [ngt, 1.0, model, test, run_test(H1, test, lk_comps), ϵ, estγ]; promote=true)
-			catch e
-				rethrow(e)
-			end
-			try
-				push!(dat, [ngt, 1.0, "quartet", test, run_test_old_model(
-					snaqH0, snaqH1, gts, test
-				), ϵ, snaqestγ]; promote=true)
-			catch e
-				rethrow(e)
-			end
-		end
-
-		# CLIC
-		try
-			logf0, sens0, var0, logf1, grad1, sens1, var1 = lk_comps
-			push!(dat, [ngt, 1.0, model, "CLIC",
-				CLICstatistic(var1, sens1, logf1) - CLICstatistic(var0, sens0, logf0),
-				ϵ, estγ]; promote=true)
-		catch e
-			rethrow(e)
-		end
-		try
-			push!(dat, [ngt, 1.0, "quartet", "CLIC",
-				quartetCLICstatistic(snaqH1, gts) - quartetCLICstatistic(snaqH0, gts),
-				ϵ, snaqestγ]; promote=true)
-		catch e
-			rethrow(e)
-		end
-
-		CSV.write(outpath, dat)
-	catch e
-		rethrow(e)
+	for test in TESTS
+		push!(dat, [ngt, t, model, test, run_test(H1, test, lk_comps), ϵ, estγ]; promote=true)
+		push!(dat, [ngt, t, "quartet", test, run_test_old_model(
+			snaqH0, snaqH1, gts, test
+		), ϵ, snaqestγ]; promote=true)
 	end
+
+	# CLIC
+	logf0, sens0, var0, logf1, grad1, sens1, var1 = lk_comps
+	push!(dat, [ngt, t, model, "CLIC",
+		CLICstatistic(var1, sens1, logf1) - CLICstatistic(var0, sens0, logf0),
+		ϵ, estγ]; promote=true)
+	push!(dat, [ngt, t, "quartet", "CLIC",
+		quartetCLICstatistic(snaqH1, gts) - quartetCLICstatistic(snaqH0, gts),
+		ϵ, snaqestγ]; promote=true)
+
+	CSV.write(outpath, dat)
 end
 CSV.write(outpath, dat)

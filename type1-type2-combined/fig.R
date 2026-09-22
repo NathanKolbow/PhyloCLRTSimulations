@@ -22,7 +22,6 @@ type2df <- rbind(
 		read.csv("../type2error/dat-eps0.001.csv"),
 		read.csv("../type2error/dat-eps0.01.csv"),
 		read.csv("../type2error/dat-eps0.1.csv"),
-		read.csv("../type2error/dat-eps0.1.csv"),
 		read.csv("../type2error/dat-eps1.0.csv")
 	) %>%
 	select(ngt, t, model, test, result, eps, gamma) %>%
@@ -39,7 +38,8 @@ nrow(type2df)
 
 make_roc_data <- function(dat) {
 	eps <- 1e-12
-	dat_alphas <- sort(unique(c(-0.01, 0, dat$result, 1)))
+	# ±Inf so every curve spans (0,0) to (1,1); CLIC differences fall outside [-0.01, 1]
+	dat_alphas <- sort(unique(c(-Inf, -0.01, 0, dat$result, 1, Inf)))
 	tibble(
 			alpha = dat_alphas,
 			fpr = unlist(lapply(dat_alphas, function(x) { mean(dat$result[dat$truth == "H0"] < x+eps) })),
@@ -57,12 +57,16 @@ make_roc_data <- function(dat) {
 # filtered for now while we have little data
 NGAMMA_GROUPS <- 4
 roc_type2df <- type2df %>%
+	filter(truth == "H1") %>%
 	mutate(gamma_group = cut_width(gamma, width = 0.5 / NGAMMA_GROUPS, boundary = 0))
-roc_type1df <- type1df %>%
+gamma_levels <- levels(roc_type2df$gamma_group)
+# The same null replicates (type-1 sims and type-2 sims with γ = 0) are copied into
+# every γ group, so FPRs and AUCs are comparable across groups
+roc_nulldf <- rbind(type1df, filter(type2df, truth == "H0")) %>%
 	group_by(model, test, eps, ngt) %>%
 	uncount(NGAMMA_GROUPS) %>%
-	mutate(gamma_group = levels(roc_type2df$gamma_group)[row_number() %% NGAMMA_GROUPS + 1])
-roc_df <- rbind(roc_type2df, roc_type1df) %>%
+	mutate(gamma_group = factor(gamma_levels[row_number() %% NGAMMA_GROUPS + 1], levels = gamma_levels))
+roc_df <- rbind(roc_type2df, roc_nulldf) %>%
 	group_by(model, test, eps, ngt, gamma_group) %>%
 	group_modify(~ make_roc_data(.x)) %>%
 	mutate(
@@ -79,7 +83,7 @@ auc_df <- roc_df %>%
 	group_by(test, model, eps, ngt, gamma_group) %>%
 	summarise(AUC = sum(area)) %>%
 	mutate(
-		labely = 0.05 + 0.03 * which(gamma_group == levels(gamma_group)),
+		labely = 0.05 + 0.03 * as.integer(gamma_group),
 		text = sprintf("AUC: %.2f", round(AUC, digits=2))
 	) %>%
 	drop_na()
@@ -179,11 +183,13 @@ best_roc_df <- roc_df %>%
 	ungroup() %>%
 	arrange(tpr) %>%
 	distinct(model, eps, ngt, gamma_group, test, fpr, .keep_all=TRUE)
+# one start/end point per curve (best_roc_df is ungrouped and may hold tied curves)
 prepend_df <- best_roc_df %>%
-	group_by(ngt, gamma_group) %>%
+	group_by(ngt, gamma_group, test, model, eps) %>%
 	filter(row_number() == 1) %>%
 	mutate(fpr = 0, tpr = 0)
 append_df <- best_roc_df %>%
+	group_by(ngt, gamma_group, test, model, eps) %>%
 	filter(row_number() == n()) %>%
 	mutate(fpr = 1)
 
@@ -239,11 +245,13 @@ best_roc_df <- roc_df %>%
 	ungroup() %>%
 	arrange(tpr) %>%
 	distinct(model, eps, ngt, gamma_group, test, fpr, .keep_all=TRUE)
+# one start/end point per curve (best_roc_df is ungrouped and may hold tied curves)
 prepend_df <- best_roc_df %>%
-	group_by(ngt, gamma_group) %>%
+	group_by(ngt, gamma_group, test, model, eps) %>%
 	filter(row_number() == 1) %>%
 	mutate(fpr = 0, tpr = 0)
 append_df <- best_roc_df %>%
+	group_by(ngt, gamma_group, test, model, eps) %>%
 	filter(row_number() == n()) %>%
 	mutate(fpr = 1)
 
@@ -298,11 +306,13 @@ best_roc_df <- roc_df %>%
 	ungroup() %>%
 	arrange(tpr) %>%
 	distinct(model, eps, ngt, gamma_group, test, fpr, .keep_all=TRUE)
+# one start/end point per curve (best_roc_df is ungrouped and may hold tied curves)
 prepend_df <- best_roc_df %>%
-	group_by(ngt, gamma_group) %>%
+	group_by(ngt, gamma_group, test, model, eps) %>%
 	filter(row_number() == 1) %>%
 	mutate(fpr = 0, tpr = 0)
 append_df <- best_roc_df %>%
+	group_by(ngt, gamma_group, test, model, eps) %>%
 	filter(row_number() == n()) %>%
 	mutate(fpr = 1)
 

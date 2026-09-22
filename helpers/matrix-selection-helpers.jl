@@ -1,7 +1,7 @@
 const CompTypes = Tuple{Float64, Matrix{Float64}, Matrix{Float64}, Float64, Vector{Float64}, Matrix{Float64}, Matrix{Float64}};
 SMOOTH_OPTIONS = ["smooth", "rough", "smooth_sensitivity", "smooth_variability", "smooth_sensvar"];
 
-function gather_likelihood_components(net::HybridNetwork, gts::Vector{HybridNetwork}, model::String, eps::Float64, smoothness::String=ϵ == 0.0 ? "rough" : "smooth")
+function gather_likelihood_components(net::HybridNetwork, gts::Vector{HybridNetwork}, model::String, eps::Float64, smoothness::String=eps == 0.0 ? "rough" : "smooth")
 	eps >= 0 || error("eps must be at least 0 (eps=$eps)")
 	(eps == 0.0 && smoothness == "rough") || eps > 0 || error("smoothness must be \"rough\" for eps=0.0 (smoothness=$smoothness)")
 

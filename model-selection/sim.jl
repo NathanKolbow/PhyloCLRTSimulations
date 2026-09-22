@@ -87,8 +87,9 @@ for irep = 1:NREP, ngt in NGTS, t in TS, model in MODELS, trueh in TRUEH
 			rows = []
 			newLLs = SNaQscore.(optnets);
 			hmaxes = collect(0:(trueh+HOVEREST))
-			new_DDSE_pens = PhyloCLRT.DDSEpenalties(.-newLLs, hmaxes, ngt)
-			new_Djump_best = PhyloCLRT.Djumpbestmodel(.-newLLs, hmaxes, ngt)
+			# these take log-likelihoods; capushe's contrast (-logLik) is formed inside them
+			new_DDSE_pens = PhyloCLRT.DDSEpenalties(newLLs, hmaxes, ngt)
+			new_Djump_best = PhyloCLRT.Djumpbestmodel(newLLs, hmaxes, ngt)
 			new_Djump_pens = [h == new_Djump_best ? 1.0 : 0.0 for h = 0:(trueh + HOVEREST)]
 			for (DDSE_pen, Djump_pen, hmax) in zip(new_DDSE_pens, new_Djump_pens, 0:(trueh+HOVEREST))
 				push!(rows, [simid, ngt, t, model, "DDSE", DDSE_pen, ϵ, trueh, hmax])
@@ -99,8 +100,9 @@ for irep = 1:NREP, ngt in NGTS, t in TS, model in MODELS, trueh in TRUEH
 				push!(dat, row)
 			end
 		catch e
+			SNAQONLY || @warn "New DDSE/Djump failed; no rows written" simid ngt model trueh exception=e
 		end
-		
+
 		@simlog "\t\tOld DDSE and Djump" try
 			rows = []
 			hmaxes = collect(0:(length(snaqnets)-1))
@@ -117,6 +119,7 @@ for irep = 1:NREP, ngt in NGTS, t in TS, model in MODELS, trueh in TRUEH
 				push!(dat, row)
 			end
 		catch e
+			@warn "Quartet DDSE/Djump failed; no rows written" simid ngt trueh exception=e
 		end
 
 		CSV.write(outpath, dat)

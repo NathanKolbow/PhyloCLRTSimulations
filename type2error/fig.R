@@ -11,7 +11,8 @@ df <- rbind(
 	read.csv("dat-eps1.0.csv")
 ) %>%
 	mutate(
-		result = if_else(test == "CLIC", sign(result) * log10(abs(result) + 0.1), result),
+		# sign-preserving, monotone log scale (log10(|x| + 0.1) flips the sign of |x| < 0.9)
+		result = if_else(test == "CLIC", sign(result) * log10(1 + abs(result)), result),
 		ngt = factor(ngt)
 	)
 
@@ -33,6 +34,8 @@ plots
 
 
 # Parameter estimates
+# NOTE: `newabssumterr` in data generated before `absparamerrors` is fixed is inflated by
+# pendant edges (-1 vs. 1) and root placement; see bug-scripts/04-absparamerrors.jl
 rbind(
 	filter(df, model == "quartet") %>%
 		rename(terr=snaqabssumterr, gammaerr=snaqabssumgammaerr) %>%

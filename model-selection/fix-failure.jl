@@ -99,8 +99,8 @@ optnets = [optnets[1], optnets[2], optnets[2], optnets[2], optnets[2]]
 	rows = []
 	newLLs = SNaQscore.(optnets);
 	hmaxes = collect(0:(length(optnets)-1))
-	new_DDSE_pens = PhyloCLRT.DDSEpenalties(.-newLLs, hmaxes, ngt)
-	new_Djump_best = PhyloCLRT.Djumpbestmodel(.-newLLs, hmaxes, ngt)
+	new_DDSE_pens = PhyloCLRT.DDSEpenalties(newLLs, hmaxes, ngt)
+	new_Djump_best = PhyloCLRT.Djumpbestmodel(newLLs, hmaxes, ngt)
 	new_Djump_pens = [h == new_Djump_best ? 1.0 : 0.0 for h = 0:(trueh + HOVEREST)]
 	for (DDSE_pen, Djump_pen, hmax) in zip(new_DDSE_pens, new_Djump_pens, 0:(trueh+HOVEREST))
 		push!(rows, [simid, ngt, t, model, "DDSE", DDSE_pen, ϵ, trueh, hmax])

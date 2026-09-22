@@ -18,14 +18,12 @@ type1df <- rbind(
 		read.csv("type1error/dat-eps0.001.csv"),
 		read.csv("type1error/dat-eps0.01.csv"),
 		read.csv("type1error/dat-eps0.1.csv"),
-		read.csv("type1error/dat-eps0.5.csv"),
 		read.csv("type1error/dat-eps1.0.csv")
 	) %>% mutate(truth = "H0")
 type2df <- rbind(
 		read.csv("../CLRT/src/model_expansion/tests-perfect-data/dat-eps0.0.csv"),
 		read.csv("../CLRT/src/model_expansion/tests-perfect-data/dat-eps0.001.csv"),
 		read.csv("../CLRT/src/model_expansion/tests-perfect-data/dat-eps0.01.csv"),
-		read.csv("../CLRT/src/model_expansion/tests-perfect-data/dat-eps0.1.csv"),
 		read.csv("../CLRT/src/model_expansion/tests-perfect-data/dat-eps0.1.csv"),
 		read.csv("../CLRT/src/model_expansion/tests-perfect-data/dat-eps0.5.csv"),
 		read.csv("../CLRT/src/model_expansion/tests-perfect-data/dat-eps1.0.csv")
@@ -35,20 +33,24 @@ type2df <- rbind(
 # Method Select
 
 ```{r}
-error_rates <- rbind(type1df, type2df) %>%
-  group_by(test, model, eps, ngt, gamma) %>%
+ALPHA <- 0.05
+# Rejection rate is the type-I error rate for truth == "H0" and the power for truth == "H1".
+# In the type-1 data `gamma` is the *estimated* γ, so it is replaced by the true value (0).
+error_rates <- bind_rows(type1df, type2df) %>%
+  mutate(gamma = if_else(truth == "H0", 0, gamma)) %>%
+  group_by(truth, test, model, eps, ngt, gamma) %>%
   summarise(
-    power = mean()
+    reject_rate = mean(if_else(test == "CLIC", result < 0, result <= ALPHA)),
+    .groups = "drop"
   )
 ```
 
 # Power Analysis
 
 ```{r, fig.height=6, fig.width=12}
-ALPHA <- 0.05
 power_df <- type2df %>%
   group_by(test, model, eps, ngt, gamma) %>%
-  summarise(power = mean(if_else(test == "CLIC", result < 0, result < ALPHA)))
+  summarise(power = mean(if_else(test == "CLIC", result < 0, result <= ALPHA)))
 
 
 ggplot(filter(power_df, test == "cw"), aes(x = gamma, y = power, color = factor(ngt))) +

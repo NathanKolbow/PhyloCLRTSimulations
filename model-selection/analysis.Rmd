@@ -49,8 +49,10 @@ df <- df %>%
     alldata %>%
       filter(test == "CLIC" | test == "DDSE" | test == "Djump") %>%
       group_by(test, simid, model, eps) %>%
+      # CLIC and DDSE are scores (lower is better); Djump stores 1 for its chosen model, 0 otherwise
       mutate(
-        alpha = 0, cutoff = 0, rejectH0 = FALSE, first_failure_to_reject = FALSE, selected = result == min(result)
+        alpha = 0, cutoff = 0, rejectH0 = FALSE, first_failure_to_reject = FALSE,
+        selected = if_else(test == "Djump", result == 1, result == min(result))
       )
   )
 
@@ -65,7 +67,8 @@ best_alpha <- df %>%
 
 df <- df %>%
   semi_join(best_alpha, c("test", "model", "eps", "alpha", "ngt")) %>%
-  mutate(result = if_else(test == "CLIC", sign(result) * log(0.1 + abs(result)), result))
+  # sign-preserving, monotone log scale (log(0.1 + |x|) flips the sign of |x| < 0.9)
+  mutate(result = if_else(test == "CLIC", sign(result) * log1p(abs(result)), result))
 Sys.time() - st    # 144
 ```
 
@@ -105,16 +108,19 @@ df %>%
 ```
 
 ```{r}
-df %>%
+quartet_clic_df <- df %>%
   filter(eps == 0.0 & test == "CLIC" & model == "quartet") %>%
   group_by(simid, ngt, trueh) %>%
   mutate(result = result - max(result)) %>%
   mutate(selected = result == min(result)) %>%
-  ungroup() %>%
+  ungroup()
+
+quartet_clic_df %>%
   group_by(ngt, trueh) %>%
   filter(selected) %>%
   summarise(acc = mean(esth == trueh))
 
+quartet_clic_df %>%
   ggplot(aes(x = esth, y = result, color = factor(trueh), group = interaction(simid, test, model, ngt))) +
   geom_point() +
   geom_line(alpha = 0.1) +

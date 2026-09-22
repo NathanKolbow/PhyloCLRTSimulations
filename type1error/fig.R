@@ -16,14 +16,15 @@ df <- rbind(
  	) %>%
 	mutate(
 		ngt = paste0("ngt=", ngt),
-		eps = paste0("eps=", eps),
-		result = if_else(test == "CLIC", sign(result) * log(abs(result)), result)
+		eps = paste0("eps=", eps)
 	)
 nrow(df)
 
 
 alpha <- 0.05
+GAMMA_BIN_WIDTH <- 0.05
 df %>%
+	mutate(gamma = floor(gamma / GAMMA_BIN_WIDTH) * GAMMA_BIN_WIDTH) %>%
 	group_by(test, model, eps, ngt, gamma, t) %>%
 	summarise(
 		type1rate = mean(if_else(test == "CLIC", result < 0, result <= alpha)),
@@ -33,4 +34,5 @@ df %>%
 	mutate(cutoff = if_else(test == "CLIC", 0, alpha)) %>%
 	ggplot(aes(x = gamma, y = type1rate, color = ngt)) +
 	geom_point() +
-	facet_nested(test + model ~ eps, scales="free")
+	facet_nested(test + model ~ eps, scales="free") +
+	labs(x = paste0("Estimated γ (bin lower edge, width ", GAMMA_BIN_WIDTH, ")"))

@@ -12,7 +12,6 @@ df <- rbind(
 		read.csv("dat-eps0.01.csv"),
 		read.csv("dat-eps0.001.csv"),
 		read.csv("dat-eps0.0001.csv"),
-		read.csv("dat-eps0.5.csv"),
 		read.csv("dat-eps1.0.csv")
  	) %>%
 	mutate(
@@ -34,5 +33,4 @@ df %>%
 	mutate(cutoff = if_else(test == "CLIC", 0, alpha)) %>%
 	ggplot(aes(x = gamma, y = type1rate, color = ngt)) +
 	geom_point() +
-	geom_line() +
 	facet_nested(test + model ~ eps, scales="free")

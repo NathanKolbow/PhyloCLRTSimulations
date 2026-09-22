@@ -9,7 +9,7 @@ redirect_stderr(devnull)
 using Pkg
 Pkg.activate(B);
 using DataFrames, CSV, RCall	# we use RCall here to load the libraries while output is hidden
-using PhyloNetworks, SNaQ, InPhyNet, PhyloCoalSimulations, PhyloCLRT
+using PhyloNetworks, SNaQ, PhyloCoalSimulations, PhyloCLRT
 import PhyloCLRT: TestData, HypothesisData, optimize_parameters∇!, optimize_root_placement,
 	getHypothData,
 	mdm_optimize_parameters∇!, mdm_optimize_root_placement,

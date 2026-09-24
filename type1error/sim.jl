@@ -73,30 +73,27 @@ for irep = 1:NREP, ngt in NGTS, t in TS, model in MODELS
 
 	for test in TESTS
 		try
-			push!(iterrows, [ngt, t, model, test, run_test(H1, test, lk_comps), ϵ, estγ]; promote=true)
+			push!(dat, [ngt, t, model, test, run_test(H1, test, lk_comps), ϵ, estγ]; promote=true)
 		catch e
 		end
 		try
-			push!(iterrows, [ngt, t, "quartet", test, run_test_old_model(
+			push!(dat, [ngt, t, "quartet", test, run_test_old_model(
 				snaqH0, snaqH1, gts, test
 			), ϵ, snaqestγ]; promote=true)
 		catch e
 		end
 	end
-	for ir in iterrows
-		push!(dat, ir)
-	end
 
 	# CLIC
 	logf0, sens0, var0, logf1, grad1, sens1, var1 = lk_comps
 	try
-		push!(iterrows, [ngt, t, model, "CLIC",
+		push!(dat, [ngt, t, model, "CLIC",
 			CLICstatistic(var1, sens1, logf1) - CLICstatistic(var0, sens0, logf0),
 			ϵ, estγ]; promote=true)
 	catch e
 	end
 	try
-		push!(iterrows, [ngt, t, "quartet", "CLIC",
+		push!(dat, [ngt, t, "quartet", "CLIC",
 			quartetCLICstatistic(snaqH1, gts) - quartetCLICstatistic(snaqH0, gts),
 			ϵ, snaqestγ]; promote=true)
 	catch e
